@@ -8,6 +8,7 @@ from pybulletX.robot_interface import IRobot
 from pybulletX.utils.loop_thread import LoopThread
 from pybulletX.gui.control_panel import ControlPanel, Sliders, Slider
 from pybulletX.helper import flatten_nested_dict, to_nested_dict
+from scipy.spatial.transform import Rotation as R
 
 bc_direct = bc.BulletClient(connection_mode=p.DIRECT)
 bc_gui = bc.BulletClient(connection_mode=p.GUI)
@@ -231,13 +232,13 @@ def set_joint_position(robot, joint_position, max_forces=None, use_joint_effort_
     #p.setJointMotorControl2(robot.id, robot.free_joint_indices[0], p.POSITION_CONTROL, targetPosition=joint_position[0], maxVelocity=1)
     #p.setJointMotorControl2(robot.id, robot.free_joint_indices[1], p.POSITION_CONTROL, targetPosition=joint_position[1], maxVelocity=1)
 
-    if sim:
-        for i in range(len(robot.free_joint_indices)):
-            client.setJointMotorControl2(robot.id, robot.free_joint_indices[i], p.POSITION_CONTROL,
-                                    targetPosition=joint_position[i], maxVelocity=vels[i], force=force[i])
-    else:
+    if not sim:
         for i in range(len(robot.free_joint_indices)):
             client.resetJointState(robot.id, robot.free_joint_indices[i], targetValue=joint_position[i])
+
+    for i in range(len(robot.free_joint_indices)):
+        client.setJointMotorControl2(robot.id, robot.free_joint_indices[i], p.POSITION_CONTROL,
+                                     targetPosition=joint_position[i], maxVelocity=vels[i], force=force[i])
     # p.setJointMotorControlArray(
     #     bodyIndex=robot.id,
     #     jointIndices=robot.free_joint_indices[2:],
@@ -251,20 +252,23 @@ def set_joint_position(robot, joint_position, max_forces=None, use_joint_effort_
     # )
 
 
-def forward(steps=240*5):
+def forward(steps=240*30, finger_steps=240):
     prev = robot.get_states()['joint_position']
 
-    for _ in range(steps):
+    for t in range(steps):
         bc_gui.stepSimulation()
         curr = robot.get_states()['joint_position']
 
-        if np.all(np.abs(curr - prev) < 1e-4):
+        eq = np.abs(curr - prev) < 1e-4
+        timeout = [t >= steps] * len(eq[:-4]) + [t >= finger_steps] * 4
+
+        if np.all(np.logical_or(eq, timeout)):
             break
 
         prev = curr
 
 
-def move_ee(pos, orn, open=True, t=5):
+def move_ee(pos, orn, open=True, t=30):
     start = time.time()
 
     #for i, (x, u, l) in enumerate(zip(r, uppers, lowers)):
@@ -284,12 +288,13 @@ def move_ee(pos, orn, open=True, t=5):
 
     success = False
     from scipy.spatial.transform import Rotation as R
+    radius = 0.05
 
     for i in range(1000):
-        lowers[0] = orig_q[0] - 0.05 * i
-        uppers[0] = orig_q[0] + 0.05 * i
-        lowers[1] = orig_q[1] - 0.05 * i
-        uppers[1] = orig_q[1] + 0.05 * i
+        #lowers[0] = orig_q[0] - radius * i
+        #uppers[0] = orig_q[0] + radius * i
+        #lowers[1] = orig_q[1] - radius * i
+        #uppers[1] = orig_q[1] + radius * i
 
         #r = list(np.array(robot.action_space.sample()['joint_position']))
         r = list(orig_q)
@@ -359,7 +364,7 @@ obj_ids = []
 
 print(robot.get_joint_infos())
 
-for i in range(0, 5):
+for i in range(0, 10):
     #x = folders[i]
     #x = folders[9]
     x = random.choice(folders)
@@ -391,7 +396,7 @@ for i in range(0, 5):
 
     obj_id = bc_gui.createMultiBody(
         baseMass=0.1,
-        basePosition=(np.random.uniform(0.5, 1.5), np.random.uniform(-1, 1), np.random.uniform(0.4, 0.6)),
+        basePosition=(np.random.uniform(0.5, 5), np.random.uniform(-1, 1), np.random.uniform(0.4, 0.6)),
         baseCollisionShapeIndex=col_shape_id,
         baseVisualShapeIndex=viz_shape_id,
         baseOrientation=bc_gui.getQuaternionFromEuler([0, 0, np.random.uniform() * np.pi * 2.0]),
@@ -441,20 +446,20 @@ for _ in range(240*5):
 #     time.sleep(0.2)
 
 for _ in range(100):
-    #for _ in range(1000):
+    q = list(robot.get_states()['joint_position'])
+    neutral = [0 for _ in joints]
+    #neutral[0] = q[0]
+    #neutral[1] = q[1]
+    #neutral[2] = q[2]
+    set_joint_position(robot, neutral, sim=False)
+
+    for _ in range(240 * 5):
+        bc_gui.stepSimulation()
+
     duck = random.choice(obj_ids)
 
     duck_pos, _ = bc_gui.getBasePositionAndOrientation(duck)
     down = bc_gui.getQuaternionFromEuler([np.pi, 0, 0])
-
-    q = list(robot.get_states()['joint_position'])
-    neutral = [0 for _ in joints]
-    neutral[0] = q[0]
-    neutral[1] = q[1]
-    neutral[2] = q[2]
-    set_joint_position(robot, neutral)
-
-    forward()
 
     move_ee(duck_pos + np.array([0, 0, 0.4]), down, open=True)
 
@@ -462,13 +467,13 @@ for _ in range(100):
 
     close_gripper()
 
-    forward()
-
     move_ee(duck_pos + np.array([0, 0, 0.4]), down, open=False)
 
-    move_ee(duck_pos + np.array([0, 0, 0.4]), p.getQuaternionFromEuler([0, np.pi*0.5, 0]), open=False)
+    rot = R.from_quat(down) * R.from_euler('xyz', [0, np.pi*0.5, 0])
+    rot = rot.as_quat()
 
-    move_ee(duck_pos + np.array([0, 0, 0.4]), p.getQuaternionFromEuler([0, np.pi*0.5, 0]), open=True)
+    move_ee(duck_pos + np.array([0, 0, 0.4]), rot, open=False)
+    move_ee(duck_pos + np.array([0, 0, 0.4]), rot, open=True)
 
     print('===========')
 
