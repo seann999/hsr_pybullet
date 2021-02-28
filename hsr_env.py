@@ -13,6 +13,17 @@ PROXIMAL_OPEN = 1
 PROXIMAL_CLOSE = -0.1
 
 
+camera_config = [{
+    'image_size': (480, 640),
+    'intrinsics': (537.4933389299223, 0.0, 319.9746375212718, 0.0, 536.5961755975517, 244.54846607953, 0.0, 0.0, 1.0),
+    'position': None,
+    'rotation': None,
+    # 'lookat': (0, 0, 0),
+    'zrange': (0.01, 10.),
+    'noise': False
+}]
+
+
 # robot.set_actions({'joint_position': q}) exceeds max velocity, so use this fn
 def set_joint_position(client, robot, joint_position, max_forces=None, use_joint_effort_limits=True):
     vels = robot.get_joint_infos()['joint_max_velocity']
