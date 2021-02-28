@@ -3,3 +3,4 @@ ycb
 log.txt
 .idea
 .python-version
+__pycache__
