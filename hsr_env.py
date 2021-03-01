@@ -5,7 +5,8 @@ import pybulletX as px
 
 from scipy.spatial.transform import Rotation as R
 import numpy as np
-import time
+import copy
+from env_utils import get_heightmaps
 
 DISTAL_OPEN = -np.pi * 0.25
 DISTAL_CLOSE = 0
@@ -13,7 +14,7 @@ PROXIMAL_OPEN = 1
 PROXIMAL_CLOSE = -0.1
 
 
-camera_config = [{
+CAMERA_CONFIG = [{
     'image_size': (480, 640),
     'intrinsics': (537.4933389299223, 0.0, 319.9746375212718, 0.0, 536.5961755975517, 244.54846607953, 0.0, 0.0, 1.0),
     'position': None,
@@ -92,16 +93,22 @@ class HSREnv:
         c_gui.changeVisualShape(self.robot.id, 46, rgbaColor=(0, 0.5, 0.5, 1))
 
         self.uppers, self.lowers, self.ranges, self.rest = self.get_robot_info()
+        self.max_vels = self.robot.get_joint_infos()['joint_max_velocity']
+        self.max_forces = self.robot.get_joint_infos()['joint_max_force']
         self.c_gui, self.c_direct = c_gui, c_direct
 
         vs_id = c_gui.createVisualShape(p.GEOM_SPHERE, radius=0.03, rgbaColor=[1, 0, 0, 1])
         self.marker_id = c_gui.createMultiBody(basePosition=[0, 0, 0], baseCollisionShapeIndex=-1,
                                                baseVisualShapeIndex=vs_id)
 
+        #print(self.robot.get_joint_infos())
+
     def get_robot_info(self):
         joints = self.robot.get_joint_infos()
         names = joints['joint_name']
         print(list(enumerate(names)))
+        # print(self.robot.get_joint_infos(range(self.robot.num_joints)))
+        # print(self.robot.get_joint_info_by_name('head_rgbd_sensor_gazebo_frame_joint'))
 
         uppers, lowers, ranges, rest = [], [], [], []
 
@@ -119,6 +126,27 @@ class HSREnv:
 
         return uppers, lowers, ranges, rest
 
+    def get_heightmap(self, **kwargs):
+        m_pos, m_orn = self.c_gui.getBasePositionAndOrientation(self.marker_id)
+        self.c_gui.resetBasePositionAndOrientation(self.marker_id, (0, 100, 0), (0, 0, 0, 1))
+
+        state = self.robot.get_link_state_by_name('head_rgbd_sensor_gazebo_frame_joint')
+
+        camera_config = copy.deepcopy(CAMERA_CONFIG)
+        camera_config[0]['position'] = list(state.world_link_frame_position)
+
+        orn = list(state.world_link_frame_orientation)
+        orn = (R.from_quat(orn) * R.from_euler('YZ', [0.5*np.pi, -0.5*np.pi])).as_quat()
+
+        camera_config[0]['rotation'] = orn
+
+        out = get_heightmaps(self.c_gui, camera_config,
+                                             bounds=np.array([[0, 3], [-1.5, 1.5], [0, 0.3]]), px_size=0.01, **kwargs)
+
+        self.c_gui.resetBasePositionAndOrientation(self.marker_id, m_pos, m_orn)
+
+        return out
+
     def open_gripper(self):
         self.gripper_command(True)
 
@@ -132,6 +160,14 @@ class HSREnv:
             client, robot = self.c_direct, self.robot_direct
 
         set_joint_position(client, robot, q)
+
+    def move_joints(self, config):
+        for k, v in config.items():
+            j = self.robot.get_joint_info_by_name(k)
+            self.c_gui.setJointMotorControl2(self.robot.id, j.joint_index, p.POSITION_CONTROL,
+                                         targetPosition=v, maxVelocity=j.joint_max_velocity, force=j.joint_max_force)
+
+        self.steps()
 
     def gripper_command(self, open):
         q = self.robot.get_states()['joint_position']
@@ -154,6 +190,8 @@ class HSREnv:
 
     def holding_config(self):
         q = [0 for _ in self.robot.get_states()['joint_position']]
+
+        q[5] = np.pi * -0.25
         q[8] = np.pi * 0.5
         q[9] = -np.pi * 0.5
 
