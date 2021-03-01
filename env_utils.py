@@ -39,7 +39,7 @@ def render_camera(client, config):
         height=config['image_size'][0],
         viewMatrix=viewm,
         projectionMatrix=projm,
-        shadow=1,
+        shadow=0,
         flags=p.ER_SEGMENTATION_MASK_OBJECT_AND_LINKINDEX,
         renderer=p.ER_BULLET_HARDWARE_OPENGL)
 
@@ -55,8 +55,9 @@ def render_camera(client, config):
     # Get depth image.
     depth_image_size = (config['image_size'][0], config['image_size'][1])
     zbuffer = np.array(depth).reshape(depth_image_size)
-    depth = (zfar + znear - (2. * zbuffer - 1.) * (zfar - znear))
-    depth = (2. * znear * zfar) / depth
+    # depth = (zfar + znear - (2. * zbuffer - 1.) * (zfar - znear))
+    # depth = (2. * znear * zfar) / depth
+    depth = zfar * znear / (zfar - (zfar - znear) * zbuffer)
     if config['noise']:
         depth += np.random.normal(0, 0.003, depth_image_size)
 
@@ -82,13 +83,10 @@ def get_heightmaps(client, configs, bounds=None, return_seg=False, px_size=0.003
     heightmaps, colormaps = ru.reconstruct_heightmaps(
         rgbs, depths, configs, bounds, px_size)
 
-    if return_seg:
-        _, segmaps = ru.reconstruct_heightmaps(
-            segs, depths, configs, bounds, px_size)
+    _, segmaps = ru.reconstruct_heightmaps(
+        segs, depths, configs, bounds, px_size)
 
-        return heightmaps, colormaps, segmaps
-
-    return heightmaps, colormaps
+    return heightmaps, colormaps, segmaps, rgbs, depths, segs
 
 
 def spawn_ycb(client, ids=None):
@@ -133,7 +131,6 @@ def spawn_ycb(client, ids=None):
             baseVisualShapeIndex=viz_shape_id,
             baseOrientation=R.random().as_quat(),
             baseInertialFramePosition=mesh.center_mass,
-
         )
 
         client.changeDynamics(obj_id, -1, lateralFriction=0.5)
