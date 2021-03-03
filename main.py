@@ -26,7 +26,7 @@ for _ in range(100):
         'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
     })
 
-    hmap, cmap, segmap = env.get_heightmap(return_seg=True)
+    hmap, cmap, segmap, _, _, _ = env.get_heightmap(return_seg=True)
     cv2.imshow('cmap', cmap[0][:, :, ::-1])
     cv2.imshow('hmap', np.uint8(hmap[0] / hmap[0].max()*255))
 
