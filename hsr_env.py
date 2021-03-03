@@ -6,7 +6,7 @@ import pybulletX as px
 from scipy.spatial.transform import Rotation as R
 import numpy as np
 import copy
-from env_utils import get_heightmaps
+import env_utils as eu
 
 DISTAL_OPEN = -np.pi * 0.25
 DISTAL_CLOSE = 0
@@ -126,7 +126,7 @@ class HSREnv:
 
         return uppers, lowers, ranges, rest
 
-    def get_heightmap(self, **kwargs):
+    def get_heightmap(self, only_render=False, **kwargs):
         m_pos, m_orn = self.c_gui.getBasePositionAndOrientation(self.marker_id)
         self.c_gui.resetBasePositionAndOrientation(self.marker_id, (0, 100, 0), (0, 0, 0, 1))
 
@@ -140,7 +140,11 @@ class HSREnv:
 
         camera_config[0]['rotation'] = orn
 
-        out = get_heightmaps(self.c_gui, camera_config,
+        if only_render:
+            rgb, depth, seg = eu.render_camera(self.c_gui, camera_config[0])
+            out = rgb, depth, seg, camera_config[0]
+        else:
+            out = eu.get_heightmaps(self.c_gui, camera_config,
                                              bounds=np.array([[0, 3], [-1.5, 1.5], [0, 0.3]]), px_size=0.01, **kwargs)
 
         self.c_gui.resetBasePositionAndOrientation(self.marker_id, m_pos, m_orn)

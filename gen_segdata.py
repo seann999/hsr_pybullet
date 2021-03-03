@@ -4,10 +4,11 @@ import cv2
 import os
 import pybullet as p
 from tqdm import tqdm
-from multiprocessing import Pool
+import json
 
 from hsr_env import HSREnv
 from env_utils import spawn_ycb
+
 
 def generate(inputs):
     start, end = inputs
@@ -48,20 +49,8 @@ def generate(inputs):
                 'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
             })
 
-            hmap, cmap, segmap, rgbs, depths, segs = env.get_heightmap(return_seg=True)
-
-            # import matplotlib.pyplot as plt
-            # plt.clf()
-            # plt.imshow(depths[0])
-            # plt.colorbar()
-            # plt.show()
-
-            cv2.imshow('cmap', cmap[0][:, :, ::-1])
-            cv2.imshow('hmap', np.uint8(hmap[0] / hmap[0].max()*255))
-
-            maskmap = np.logical_or.reduce([segmap[0] == id for id in obj_ids])
-            cv2.imshow('maskmap', np.uint8(maskmap / maskmap.max() * 255))
-            cv2.waitKey(1)
+            # hmap, cmap, segmap, rgbs, depths, segs = env.get_heightmap(return_seg=True)
+            rgb, depth, seg, config = env.get_heightmap(only_render=True)
 
             d = 'data/{:05d}_{:02d}'.format(ep, subep)
 
@@ -70,18 +59,17 @@ def generate(inputs):
             except FileExistsError:
                 pass
 
-            cv2.imwrite(os.path.join(d, 'cmap.png'), cmap[0][:, :, ::-1])
-            cv2.imwrite(os.path.join(d, 'hmap.png'), np.uint16(hmap[0]*1000))
-            cv2.imwrite(os.path.join(d, 'segmap.png'), segmap[0])
-            cv2.imwrite(os.path.join(d, 'maskmap.png'), np.uint8(maskmap)*255)
-            cv2.imwrite(os.path.join(d, 'rgb.png'), rgbs[0][:, :, ::-1])
-            cv2.imwrite(os.path.join(d, 'depth.png'), np.uint16(depths[0] * 1000))
-            cv2.imwrite(os.path.join(d, 'seg.png'), segs[0])
+            cv2.imwrite(os.path.join(d, 'rgb.png'), rgb[:, :, ::-1])
+            cv2.imwrite(os.path.join(d, 'depth.png'), np.uint16(depth * 1000))
+            cv2.imwrite(os.path.join(d, 'seg.png'), seg)
+
+            config['rotation'] = config['rotation'].tolist()
+
+            with open(os.path.join(d, 'config.json'), 'w') as f:
+                f.write(json.dumps(config))
 
         bar.update(1)
 
+
 if __name__ == '__main__':
-    #p = Pool(10)
-    #result = p.map(generate, [(0, 100), (100, 200)])
-    #print(result)
-    generate((0, 10000))
+    generate((0, 1000))
