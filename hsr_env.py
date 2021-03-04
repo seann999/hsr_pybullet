@@ -7,6 +7,8 @@ from scipy.spatial.transform import Rotation as R
 import numpy as np
 import copy
 import env_utils as eu
+import ravens.utils.utils as ru
+
 
 DISTAL_OPEN = -np.pi * 0.25
 DISTAL_CLOSE = 0
@@ -126,7 +128,7 @@ class HSREnv:
 
         return uppers, lowers, ranges, rest
 
-    def get_heightmap(self, only_render=False, **kwargs):
+    def get_heightmap(self, only_render=False, bounds=np.array([[0, 3], [-1.5, 1.5], [0, 0.3]]), px_size=0.01, **kwargs):
         m_pos, m_orn = self.c_gui.getBasePositionAndOrientation(self.marker_id)
         self.c_gui.resetBasePositionAndOrientation(self.marker_id, (0, 100, 0), (0, 0, 0, 1))
 
@@ -144,8 +146,7 @@ class HSREnv:
             rgb, depth, seg = eu.render_camera(self.c_gui, camera_config[0])
             out = rgb, depth, seg, camera_config[0]
         else:
-            out = eu.get_heightmaps(self.c_gui, camera_config,
-                                             bounds=np.array([[0, 3], [-1.5, 1.5], [0, 0.3]]), px_size=0.01, **kwargs)
+            out = eu.get_heightmaps(self.c_gui, camera_config, bounds=bounds, px_size=px_size, **kwargs)
 
         self.c_gui.resetBasePositionAndOrientation(self.marker_id, m_pos, m_orn)
 
@@ -220,7 +221,7 @@ class HSREnv:
         self.set_joint_position(q, True)
         self.steps()
 
-    def steps(self, steps=240 * 30, finger_steps=240):
+    def steps(self, steps=240 * 30, finger_steps=240, stop_at_contact=False):
         prev = self.robot.get_states()['joint_position']
 
         for t in range(steps):
@@ -229,6 +230,24 @@ class HSREnv:
 
             eq = np.abs(curr - prev) < 1e-4
             timeout = [t >= steps] * len(eq[:-4]) + [t >= finger_steps] * 4
+
+            if stop_at_contact:
+                is_in_contact = False
+                points1 = self.c_gui.getContactPoints(bodyA=self.robot.id, linkIndexA=40)
+                points2 = self.c_gui.getContactPoints(bodyA=self.robot.id, linkIndexA=46)
+                if len(points1) > 0:
+                    for p in points1:
+                        if p[9] > 0:
+                            is_in_contact = True
+                            break
+                if not is_in_contact and len(points2) > 0:
+                    for p in points2:
+                        if p[9] > 0:
+                            is_in_contact = True
+                            break
+                if is_in_contact:
+                    print('stopping at contact')
+                    break
 
             if np.all(np.logical_or(eq, timeout)):
                 # print('breaking at', t, 'steps')
@@ -248,7 +267,7 @@ class HSREnv:
         self.set_joint_position(q[:-4], True)
         self.steps()
 
-    def move_ee(self, pos, orn, open=True, t=10):
+    def move_ee(self, pos, orn, open=True, t=10, stop_at_contact=False):
         orig_q = list(self.robot.get_states()['joint_position'])
 
         self.c_gui.resetBasePositionAndOrientation(self.marker_id, pos, orn)
@@ -310,14 +329,123 @@ class HSREnv:
         self.set_joint_position(q[:-4], True)
 
         steps = 240 * t
-        self.steps(steps)
+        self.steps(steps, stop_at_contact=stop_at_contact)
 
-    def grasp_primitive(self, pos, angle=0):
+    def grasp_primitive(self, pos, angle=0, stop_at_contact=False):
         pos = np.array(pos)
         down = p.getQuaternionFromEuler([np.pi, 0, angle])
 
         self.move_ee(pos + np.array([0, 0, 0.3]), down)
         self.open_gripper()
-        self.move_ee(pos, down)
+        self.move_ee(pos, down, stop_at_contact=stop_at_contact)
+        # input('close?')
         self.close_gripper()
+        # input('ok?')
         self.move_ee(pos + np.array([0, 0, 0.3]), down)
+
+
+class GraspEnv:
+    def __init__(self, **kwargs):
+        self.env = HSREnv(**kwargs)
+        self.obj_ids = eu.spawn_ycb(self.env.c_gui, ids=list(range(10)))
+
+        self.hmap = None
+
+        self.px_size = 0.01
+        self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 0.3]])
+        self.spawn_area = [[0.5, -1, 0.4], [2.5, 1, 0.6]]
+
+    def reset(self):
+        for id in self.obj_ids:
+            self.env.c_gui.resetBasePositionAndOrientation(id, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
+            self.env.c_gui.changeDynamics(id, -1, mass=0)
+
+        num_objs = np.random.randint(1, 10)
+        selected = np.random.permutation(self.obj_ids)[:num_objs]
+
+        for id in selected:
+            x = np.random.uniform(self.spawn_area[0][0], self.spawn_area[1][0])
+            y = np.random.uniform(self.spawn_area[0][1], self.spawn_area[1][1])
+            z = np.random.uniform(self.spawn_area[0][2], self.spawn_area[1][2])
+            pos = (x, y, z)
+
+            self.env.c_gui.resetBasePositionAndOrientation(id, pos, R.random().as_quat())
+            self.env.c_gui.changeDynamics(id, -1, mass=0.1)
+
+        self.env.reset_pose()
+
+        self.env.move_joints({
+            'head_tilt_joint': np.random.uniform(np.pi * -0.25, 0),
+            'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
+        })
+
+        for _ in range(240*5):
+            self.env.c_gui.stepSimulation()
+
+        rgb, depth, seg, config = self.env.get_heightmap(only_render=True, return_seg=True, bounds=self.hmap_bounds, px_size=self.px_size)
+
+        hmap, cmap = self.to_maps(rgb, depth, config, noise=True)
+
+        self.hmap = hmap
+
+        return {'heightmap': hmap, 'colormap': cmap, 'state': {'rgb': rgb, 'depth': depth, 'config': config}}
+
+    def to_maps(self, rgb, depth, config, noise=False):
+        config = copy.deepcopy(config)
+
+        if noise:
+            if np.random.uniform() < 0.5:
+                depth = eu.distort(depth, noise=np.random.uniform(0, 1))
+
+            config['position'] = np.array(config['position']) + np.random.normal(0, 0.01, 3)
+
+            rvec = np.random.normal(0, 1, 3)
+            rvec /= np.linalg.norm(rvec)
+            mag = 1 / 180.0 * np.pi
+
+            rot = R.from_quat(config['rotation'])
+            config['rotation'] = (R.from_rotvec(mag * rvec) * rot).as_quat()
+
+        hmaps, cmaps = ru.reconstruct_heightmaps(
+            [rgb], [depth], [config], self.hmap_bounds, 0.01)
+        # _, segmaps = ru.reconstruct_heightmaps(
+        #     [seg[:, :, None]], [depth], [config], self.hmap_bounds, 0.01)
+
+        return hmaps[0], cmaps[0]#, segmaps[0]
+
+    def step(self, px, angle):
+        # px in y, x axis in that order
+
+        x = self.hmap_bounds[0, 0] + px[1] * self.px_size
+        y = self.hmap_bounds[1, 0] + px[0] * self.px_size
+
+        surface_height = 0
+        self.hmap[self.hmap == 0] = surface_height - self.hmap_bounds[2, 0]
+
+        print(self.hmap[px[0], px[1]], self.hmap_bounds[2, 0])
+        z = self.hmap[px[0], px[1]] + self.hmap_bounds[2, 0]
+        print('raw z:', z)
+        z += 0.24 - 0.07
+
+        self.env.grasp_primitive([x, y, z], angle, stop_at_contact=False)
+
+        self.env.holding_pose()
+
+        for _ in range(240):
+            self.env.stepSimulation()
+
+        success = False
+
+        points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=40)
+        for c in points:
+            if c[2] in self.obj_ids:
+                success = True
+                break
+        if not success:
+            points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=46)
+            for c in points:
+                if c[2] in self.obj_ids:
+                    success = True
+                    break
+
+        return success

@@ -87,7 +87,7 @@ def get_heightmaps(client, configs, bounds=None, return_seg=False, px_size=0.003
     _, segmaps = ru.reconstruct_heightmaps(
         segs, depths, configs, bounds, px_size)
 
-    return heightmaps, colormaps, segmaps, rgbs, depths, segs
+    return heightmaps, colormaps, segmaps#, rgbs, depths, segs
 
 
 def spawn_ycb(client, ids=None):
