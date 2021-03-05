@@ -33,11 +33,11 @@ class QFCN(nn.Module):
         # plt.imshow(f)
         # plt.show()
 
-        out = out.view(bs, -1)  # N x RHW
+        out = out.reshape(bs, -1)  # N x RHW
 
         return pfrl.action_value.DiscreteActionValue(out)
 
-env = GraspEnv(connect=p.GUI)
+env = GraspEnv(connect=p.DIRECT)
 q_func = QFCN()
 
 # Set the discount factor that discounts future rewards.

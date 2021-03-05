@@ -43,8 +43,11 @@ class FCN(nn.Module):
             affine_mat_before = torch.from_numpy(affine_mat_before).permute(2, 0, 1).float()
             affine_mat_before = affine_mat_before.repeat(bs, 1, 1)
 
+            #print(affine_mat_before.shape, x.shape)
+            #print(affine_mat_before.is_cuda, x.is_cuda)
+
             if self.use_cuda:
-                flow_grid_before = F.affine_grid(affine_mat_before.detach().cuda(),
+                flow_grid_before = F.affine_grid(affine_mat_before.cuda(),
                                                  x.size())
             else:
                 flow_grid_before = F.affine_grid(affine_mat_before.detach(), x.size())

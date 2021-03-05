@@ -348,7 +348,7 @@ class HSREnv:
 class GraspEnv:
     def __init__(self, **kwargs):
         self.env = HSREnv(**kwargs)
-        self.obj_ids = eu.spawn_ycb(self.env.c_gui, ids=list(range(79)))
+        self.obj_ids = eu.spawn_ycb(self.env.c_gui, ids=list(range(78)))
 
         self.res = 224
         self.px_size = 3.0 / self.res
