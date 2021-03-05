@@ -407,9 +407,15 @@ class GraspEnv:
         return np.stack([hmap, hmap, hmap])
 
     def step(self, action):
-        px_x = int(action % self.res)
-        px_y = int(action / self.res)
+        rot_idx = int(action / (self.res * self.res))
+        loc_idx = action % (self.res * self.res)
+        px_y = int(loc_idx / self.res)
+        px_x = int(loc_idx % self.res)
+
         px = [px_y, px_x]
+        num_rots = 16
+        angle = rot_idx * 2 * np.pi / num_rots
+        angle = -angle  # flip
 
         # px in y, x axis in that order
 
@@ -422,7 +428,7 @@ class GraspEnv:
         z = self.hmap[px[0], px[1]] + self.hmap_bounds[2, 0]
         z += 0.24 - 0.07
 
-        self.env.grasp_primitive([x, y, z], 0, stop_at_contact=False)
+        self.env.grasp_primitive([x, y, z], angle, stop_at_contact=False)
 
         self.env.holding_pose()
 
@@ -453,7 +459,7 @@ def to_maps(rgb, depth, config, bounds, px_size, noise=False):
         if np.random.uniform() < 0.5:
             depth = eu.distort(depth, noise=np.random.uniform(0, 1))
 
-        config['position'] = np.array(config['position']) + np.random.normal(0, 0.01, 3)
+        # config['position'] = np.array(config['position']) + np.random.normal(0, 0.01, 3)
 
         rvec = np.random.normal(0, 1, 3)
         rvec /= np.linalg.norm(rvec)

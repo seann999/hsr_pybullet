@@ -14,13 +14,26 @@ class QFCN(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.model = FCN()
+        rots = 16
+
+        self.model = FCN(rots)
 
     def forward(self, x):
         bs = len(x)
         out = self.model(x)
 
-        out = out.view(bs, -1)
+        out = torch.stack(out)  # R x N x 1 x H x W
+        out = out.squeeze(2)  # R x N x H x W
+
+        out = out.permute(1, 0, 2, 3)  # N x R x H x W
+
+        # out = out.detach().cpu().numpy()
+        # import matplotlib.pyplot as plt
+        # f = np.hstack([out[0, i, :, :] for i in range(16)])
+        # plt.imshow(f)
+        # plt.show()
+
+        out = out.view(bs, -1)  # N x RHW
 
         return pfrl.action_value.DiscreteActionValue(out)
 
@@ -63,7 +76,7 @@ agent = pfrl.agents.DQN(
     replay_start_size=50,
     update_interval=1,
     target_update_interval=1,
-    minibatch_size=16,
+    minibatch_size=32,
     # phi=phi,
     gpu=gpu,
     max_grad_norm=1,
