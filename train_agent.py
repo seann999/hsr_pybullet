@@ -1,65 +1,88 @@
-from hsr_env import GraspEnv
+from hsr_env import GraspEnv, to_maps
 import pybullet as p
 import numpy as np
 import matplotlib.pyplot as plt
+import pfrl
+import torch
+import torch.nn as nn
+import gym
+import numpy
+from fcn_model import FCN
 
 
-class ReplayBuffer:
+class QFCN(nn.Module):
     def __init__(self):
-        self.states = []
-        self.actions = []
-        self.rewards = []
+        super().__init__()
 
-    def add(self, state, action, r):
-        for k, v in state.items():
-            if k == 'depth':
-                state[k] = np.uint16(v * 1000.0)
-            else:
-                state[k] = v
+        self.model = FCN()
 
-        self.states.append(state)
-        self.actions.append(action)
-        self.rewards.append(r)
+    def forward(self, x):
+        bs = len(x)
+        out = self.model(x)
 
-    def __len__(self):
-        return len(self.states)
+        out = out.view(bs, -1)
 
-    def sample_batch(self, num):
-        b = []
+        return pfrl.action_value.DiscreteActionValue(out)
 
-        for _ in range(num):
-            b.append(self.sample())
-
-        s, a, r = zip(*b)
-
-        s_dict = {k:np.stack([s_i[k] for s_i in s]) for k in s[0].keys()}
-
-        return s_dict, np.stack(a), np.stack(r)
-
-    def sample(self):
-        idx = np.random.randint(len(self.states))
-        return self.states[idx], self.actions[idx], self.rewards[idx]
-
-
-replay = ReplayBuffer()
 env = GraspEnv(connect=p.GUI)
+q_func = QFCN()
 
-for _ in range(1000):
-    obs = env.reset()
+# Set the discount factor that discounts future rewards.
+gamma = 1
 
-    # plt.imshow(obs['heightmap'])
-    # plt.show()
+# Use epsilon-greedy for exploration
+explorer = pfrl.explorers.LinearDecayEpsilonGreedy(
+    0.5, 0.1, 1000, random_action_func=env.action_space.sample)
+optimizer = torch.optim.Adam(q_func.parameters(), eps=3e-4)
 
-    if len(replay) > 0:
-        s, a, r = replay.sample_batch(4)
-        print(s['depth'].shape, a.shape, r.shape)
+# DQN uses Experience Replay.
+# Specify a replay buffer and its capacity.
+replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6)
 
-    y, x = np.where(obs['heightmap'] == obs['heightmap'].max())
-    y, x = y[0], x[0]
-    loc = [y, x]
-    # loc = np.random.randint(0, 300, 2)
-    angle = np.random.uniform(0, np.pi * 2)
-    success = env.step(loc, angle)
-    replay.add(obs['state'], [y, x, angle], float(success))
+# Since observations from CartPole-v0 is numpy.float64 while
+# As PyTorch only accepts numpy.float32 by default, specify
+# a converter as a feature extractor function phi.
+# phi = lambda x: x.astype(numpy.float32, copy=False)
 
-    print(success)
+# Set the device id to use GPU. To use CPU only, set it to -1.
+gpu = 0
+
+# def phi(obs):
+#     hmap, cmap = to_maps(obs['rgb'], obs['depth'], obs['config'], env.hmap_bounds, noise=True)
+#     hmap = np.stack([hmap, hmap, hmap])
+#
+#     return hmap
+
+# Now create an agent that will interact with the environment.
+agent = pfrl.agents.DQN(
+    q_func,
+    optimizer,
+    replay_buffer,
+    gamma,
+    explorer,
+    replay_start_size=50,
+    update_interval=1,
+    target_update_interval=1,
+    minibatch_size=16,
+    # phi=phi,
+    gpu=gpu,
+    max_grad_norm=1,
+)
+
+import logging
+import sys
+logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='')
+
+pfrl.experiments.train_agent_with_evaluation(
+    agent,
+    env,
+    steps=20000,           # Train the agent for 2000 steps
+    eval_n_steps=None,       # We evaluate for episodes, not time
+    eval_n_episodes=10,       # 10 episodes are sampled for each evaluation
+    train_max_episode_len=200,  # Maximum length of each episode
+    eval_interval=100,   # Evaluate the agent after every 1000 steps
+    outdir='result',      # Save everything to 'result' directory
+    save_best_so_far_agent=True,
+)
+
+print('Finished.')

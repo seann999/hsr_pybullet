@@ -21,4 +21,8 @@ class FCN(nn.Module):
         )
 
     def forward(self, x):
-        return self.end(self.backbone(x))
+        y = self.end(self.backbone(x))
+
+        assert x.shape[-2:] == y.shape[-2:], 'input =/= output shape {} {}'.format(x.shape, y.shape)
+
+        return y

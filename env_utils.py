@@ -127,7 +127,7 @@ def spawn_ycb(client, ids=None):
 
         obj_id = client.createMultiBody(
             baseMass=0.1,
-            basePosition=(np.random.uniform(0.5, 2.5), np.random.uniform(-1, 1), np.random.uniform(0.4, 0.6)),
+            basePosition=(np.random.uniform(0.5, 3.0), np.random.uniform(-1.5, 1.5), np.random.uniform(0.4, 0.6)),
             baseCollisionShapeIndex=col_shape_id,
             baseVisualShapeIndex=viz_shape_id,
             baseOrientation=R.random().as_quat(),

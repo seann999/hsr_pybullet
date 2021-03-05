@@ -8,6 +8,7 @@ import numpy as np
 import copy
 import env_utils as eu
 import ravens.utils.utils as ru
+from gym.spaces import Box, Discrete
 
 
 DISTAL_OPEN = -np.pi * 0.25
@@ -347,13 +348,25 @@ class HSREnv:
 class GraspEnv:
     def __init__(self, **kwargs):
         self.env = HSREnv(**kwargs)
-        self.obj_ids = eu.spawn_ycb(self.env.c_gui, ids=list(range(10)))
+        self.obj_ids = eu.spawn_ycb(self.env.c_gui, ids=list(range(79)))
+
+        self.res = 224
+        self.px_size = 3.0 / self.res
+
+        self.observation_space = Box(-1, 1, (self.res, self.res))
+        self.action_space = Discrete(self.res*self.res)
 
         self.hmap = None
 
-        self.px_size = 0.01
+        self.dummy = np.zeros((3, self.res, self.res), dtype=np.float32)
         self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 0.3]])
-        self.spawn_area = [[0.5, -1, 0.4], [2.5, 1, 0.6]]
+        self.spawn_area = [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
+
+        # self.pos = []
+        # self.rot = []
+        # for _ in self.obj_ids:
+        #     self.pos.append([np.random.uniform(self.spawn_area[0][i], self.spawn_area[1][i]) for i in range(3)])
+        #     self.rot.append(R.random().as_quat())
 
     def reset(self):
         for id in self.obj_ids:
@@ -363,11 +376,12 @@ class GraspEnv:
         num_objs = np.random.randint(1, 10)
         selected = np.random.permutation(self.obj_ids)[:num_objs]
 
-        for id in selected:
+        for i, id in enumerate(selected):
             x = np.random.uniform(self.spawn_area[0][0], self.spawn_area[1][0])
             y = np.random.uniform(self.spawn_area[0][1], self.spawn_area[1][1])
             z = np.random.uniform(self.spawn_area[0][2], self.spawn_area[1][2])
             pos = (x, y, z)
+            # pos = self.pos[i]
 
             self.env.c_gui.resetBasePositionAndOrientation(id, pos, R.random().as_quat())
             self.env.c_gui.changeDynamics(id, -1, mass=0.1)
@@ -384,36 +398,19 @@ class GraspEnv:
 
         rgb, depth, seg, config = self.env.get_heightmap(only_render=True, return_seg=True, bounds=self.hmap_bounds, px_size=self.px_size)
 
-        hmap, cmap = self.to_maps(rgb, depth, config, noise=True)
+        hmap, cmap = to_maps(rgb, depth, config, self.hmap_bounds, self.px_size, noise=False)
+
+        assert hmap.shape[0] == self.res and hmap.shape[1] == self.res, 'resolutions do not match {} {}'.format(hmap.shape, self.res)
 
         self.hmap = hmap
 
-        return {'heightmap': hmap, 'colormap': cmap, 'state': {'rgb': rgb, 'depth': depth, 'config': config}}
+        return np.stack([hmap, hmap, hmap])
 
-    def to_maps(self, rgb, depth, config, noise=False):
-        config = copy.deepcopy(config)
+    def step(self, action):
+        px_x = int(action % self.res)
+        px_y = int(action / self.res)
+        px = [px_y, px_x]
 
-        if noise:
-            if np.random.uniform() < 0.5:
-                depth = eu.distort(depth, noise=np.random.uniform(0, 1))
-
-            config['position'] = np.array(config['position']) + np.random.normal(0, 0.01, 3)
-
-            rvec = np.random.normal(0, 1, 3)
-            rvec /= np.linalg.norm(rvec)
-            mag = 1 / 180.0 * np.pi
-
-            rot = R.from_quat(config['rotation'])
-            config['rotation'] = (R.from_rotvec(mag * rvec) * rot).as_quat()
-
-        hmaps, cmaps = ru.reconstruct_heightmaps(
-            [rgb], [depth], [config], self.hmap_bounds, 0.01)
-        # _, segmaps = ru.reconstruct_heightmaps(
-        #     [seg[:, :, None]], [depth], [config], self.hmap_bounds, 0.01)
-
-        return hmaps[0], cmaps[0]#, segmaps[0]
-
-    def step(self, px, angle):
         # px in y, x axis in that order
 
         x = self.hmap_bounds[0, 0] + px[1] * self.px_size
@@ -422,12 +419,10 @@ class GraspEnv:
         surface_height = 0
         self.hmap[self.hmap == 0] = surface_height - self.hmap_bounds[2, 0]
 
-        print(self.hmap[px[0], px[1]], self.hmap_bounds[2, 0])
         z = self.hmap[px[0], px[1]] + self.hmap_bounds[2, 0]
-        print('raw z:', z)
         z += 0.24 - 0.07
 
-        self.env.grasp_primitive([x, y, z], angle, stop_at_contact=False)
+        self.env.grasp_primitive([x, y, z], 0, stop_at_contact=False)
 
         self.env.holding_pose()
 
@@ -448,4 +443,28 @@ class GraspEnv:
                     success = True
                     break
 
-        return success
+        return self.dummy, float(success), True, {}
+
+
+def to_maps(rgb, depth, config, bounds, px_size, noise=False):
+    config = copy.deepcopy(config)
+
+    if noise:
+        if np.random.uniform() < 0.5:
+            depth = eu.distort(depth, noise=np.random.uniform(0, 1))
+
+        config['position'] = np.array(config['position']) + np.random.normal(0, 0.01, 3)
+
+        rvec = np.random.normal(0, 1, 3)
+        rvec /= np.linalg.norm(rvec)
+        mag = 1 / 180.0 * np.pi
+
+        rot = R.from_quat(config['rotation'])
+        config['rotation'] = (R.from_rotvec(mag * rvec) * rot).as_quat()
+
+    hmaps, cmaps = ru.reconstruct_heightmaps(
+        [rgb], [depth], [config], bounds, px_size)
+    # _, segmaps = ru.reconstruct_heightmaps(
+    #     [seg[:, :, None]], [depth], [config], self.hmap_bounds, 0.01)
+
+    return hmaps[0], cmaps[0]#, segmaps[0]
