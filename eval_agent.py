@@ -1,5 +1,3 @@
-import sys
-sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
 import cv2
 
 from hsr_env import GraspEnv, to_maps
@@ -35,7 +33,7 @@ replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6)
 # phi = lambda x: x.astype(numpy.float32, copy=False)
 
 # Set the device id to use GPU. To use CPU only, set it to -1.
-gpu = -1
+gpu = 0
 
 # def phi(obs):
 #     hmap, cmap = to_maps(obs['rgb'], obs['depth'], obs['config'], env.hmap_bounds, noise=True)
@@ -58,24 +56,29 @@ agent = pfrl.agents.DQN(
     gpu=gpu,
 )
 
-agent.load('result/best')
+#agent.load('result/result_old/best')
+agent.load('result/test02/best')
 
 print('>>>>>starting eval')
 max_episode_len = 100
-n_episodes = 10
-for i in range(1, n_episodes + 1):
-    obs = env.reset()
-    R = 0  # return (sum of rewards)
-    t = 0  # time step
-    while True:
-        # Uncomment to watch the behavior in a GUI window
-        # env.render()
-        action = agent.act(obs)
-        obs, reward, done, _ = env.step(action)
-        R += reward
-        t += 1
-        reset = t == max_episode_len
-        if done or reset:
-            break
+n_episodes = 100
+
+with agent.eval_mode():
+    for i in range(1, n_episodes + 1):
+        obs = env.reset()
+        R = 0  # return (sum of rewards)
+        t = 0  # time step
+        while True:
+            # Uncomment to watch the behavior in a GUI window
+            # env.render()
+            action = agent.act(obs)
+            obs, reward, done, _ = env.step(action)
+            R += reward
+            t += 1
+            reset = t == max_episode_len
+            if done or reset:
+                break
+
+        print('-----')
 
 print('Finished.')
