@@ -167,13 +167,18 @@ class HSREnv:
 
         set_joint_position(client, robot, q)
 
-    def move_joints(self, config):
+    def move_joints(self, config, sim=True):
         for k, v in config.items():
             j = self.robot.get_joint_info_by_name(k)
+
+            if not sim:
+                self.c_gui.resetJointState(self.robot.id, j.joint_index, v)
+
             self.c_gui.setJointMotorControl2(self.robot.id, j.joint_index, p.POSITION_CONTROL,
                                          targetPosition=v, maxVelocity=j.joint_max_velocity, force=j.joint_max_force)
 
-        self.steps()
+        if sim:
+            self.steps()
 
     def gripper_command(self, open):
         q = self.robot.get_states()['joint_position']
@@ -346,9 +351,9 @@ class HSREnv:
 
 
 class GraspEnv:
-    def __init__(self, **kwargs):
+    def __init__(self, check_visibility=False, **kwargs):
         self.env = HSREnv(**kwargs)
-        self.obj_ids = eu.spawn_ycb(self.env.c_gui, ids=list(range(78)))
+        self.obj_ids = eu.spawn_ycb(self.env.c_gui, ids=list(range(10)))
 
         self.res = 224
         self.px_size = 3.0 / self.res
@@ -361,6 +366,8 @@ class GraspEnv:
         self.dummy = np.zeros((3, self.res, self.res), dtype=np.float32)
         self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 0.3]])
         self.spawn_area = [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
+
+        self.check_visibility = check_visibility
 
         # self.pos = []
         # self.rot = []
@@ -388,19 +395,24 @@ class GraspEnv:
 
         self.env.reset_pose()
 
-        self.env.move_joints({
-            'head_tilt_joint': np.random.uniform(np.pi * -0.25, 0),
-            'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
-        })
+        max_tries = 10
+        for _ in range(max_tries):
+            self.env.move_joints({
+                'head_tilt_joint': np.random.uniform(np.pi * -0.25, 0),
+                'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
+            }, sim=False)
 
-        for _ in range(240*5):
-            self.env.c_gui.stepSimulation()
+            for _ in range(240*5):
+                self.env.c_gui.stepSimulation()
 
-        rgb, depth, seg, config = self.env.get_heightmap(only_render=True, return_seg=True, bounds=self.hmap_bounds, px_size=self.px_size)
+            rgb, depth, seg, config = self.env.get_heightmap(only_render=True, return_seg=True, bounds=self.hmap_bounds, px_size=self.px_size)
 
-        hmap, cmap = to_maps(rgb, depth, config, self.hmap_bounds, self.px_size, noise=False)
+            hmap, cmap, segmap = to_maps(rgb, depth, seg, config, self.hmap_bounds, self.px_size, noise=False)
 
-        assert hmap.shape[0] == self.res and hmap.shape[1] == self.res, 'resolutions do not match {} {}'.format(hmap.shape, self.res)
+            assert hmap.shape[0] == self.res and hmap.shape[1] == self.res, 'resolutions do not match {} {}'.format(hmap.shape, self.res)
+
+            if not self.check_visibility or np.logical_and(self.obj_ids[0] <= segmap, self.obj_ids[-1] >= segmap).sum() > 0:
+                break
 
         self.hmap = hmap
 
@@ -452,7 +464,7 @@ class GraspEnv:
         return self.dummy, float(success), True, {}
 
 
-def to_maps(rgb, depth, config, bounds, px_size, noise=False):
+def to_maps(rgb, depth, seg, config, bounds, px_size, noise=False):
     config = copy.deepcopy(config)
 
     if noise:
@@ -470,7 +482,7 @@ def to_maps(rgb, depth, config, bounds, px_size, noise=False):
 
     hmaps, cmaps = ru.reconstruct_heightmaps(
         [rgb], [depth], [config], bounds, px_size)
-    # _, segmaps = ru.reconstruct_heightmaps(
-    #     [seg[:, :, None]], [depth], [config], self.hmap_bounds, 0.01)
+    _, segmaps = ru.reconstruct_heightmaps(
+        [seg[:, :, None]], [depth], [config], bounds, px_size)
 
-    return hmaps[0], cmaps[0]#, segmaps[0]
+    return hmaps[0], cmaps[0], segmaps[0]

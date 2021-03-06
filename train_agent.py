@@ -27,18 +27,38 @@ class QFCN(nn.Module):
 
         out = out.permute(1, 0, 2, 3)  # N x R x H x W
 
-        # out = out.detach().cpu().numpy()
-        # import matplotlib.pyplot as plt
-        # f = np.hstack([out[0, i, :, :] for i in range(16)])
-        # plt.imshow(f)
+        import matplotlib.pyplot as plt
+
+        # out_np = out.detach().cpu().numpy()
+        # f = np.vstack([np.hstack([out_np[0, i, :, :] for i in range(x*4,(x+1)*4)]) for x in range(4)])
+
+        # plt.subplot(121)
+
+        # action = out_np[0].flatten().argmax()
+        # res = 224
+        # loc_idx = action % (res * res)
+        # px_y = int(loc_idx / res)
+        # px_x = int(loc_idx % res)
+        # print('VIZ A:', action)
+        # print('VIZ:', px_x, px_y)
+
+        # plt.imshow(x.cpu().numpy()[0, 0])
+        # plt.plot([px_x], [px_y], '*r')
+        # plt.subplot(122)
+        # plt.imshow(f, vmin=0)
+        # plt.colorbar()
+        # plt.gcf().set_size_inches(10, 8)
+        # plt.tight_layout()
         # plt.show()
 
         out = out.reshape(bs, -1)  # N x RHW
 
         return pfrl.action_value.DiscreteActionValue(out)
 
+
 if __name__ == '__main__':
     env = GraspEnv(connect=p.DIRECT)
+    eval_env = GraspEnv(check_visibility=True, connect=p.DIRECT)
     q_func = QFCN()
 
     # Set the discount factor that discounts future rewards.
@@ -51,7 +71,7 @@ if __name__ == '__main__':
 
     # DQN uses Experience Replay.
     # Specify a replay buffer and its capacity.
-    replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6)
+    replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6, betasteps=1000)
 
     # Since observations from CartPole-v0 is numpy.float64 while
     # As PyTorch only accepts numpy.float32 by default, specify
@@ -80,7 +100,7 @@ if __name__ == '__main__':
         minibatch_size=32,
         # phi=phi,
         gpu=gpu,
-        max_grad_norm=1,
+        # max_grad_norm=1,
     )
 
     import logging
@@ -92,11 +112,12 @@ if __name__ == '__main__':
         env,
         steps=20000,           # Train the agent for 2000 steps
         eval_n_steps=None,       # We evaluate for episodes, not time
-        eval_n_episodes=10,       # 10 episodes are sampled for each evaluation
+        eval_n_episodes=20,       # 10 episodes are sampled for each evaluation
         train_max_episode_len=200,  # Maximum length of each episode
         eval_interval=100,   # Evaluate the agent after every 1000 steps
         outdir='result',      # Save everything to 'result' directory
         save_best_so_far_agent=True,
+        eval_env=eval_env,
     )
 
     print('Finished.')

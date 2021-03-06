@@ -56,8 +56,8 @@ agent = pfrl.agents.DQN(
     gpu=gpu,
 )
 
-#agent.load('result/result_old/best')
-agent.load('result/test02/best')
+agent.load('result/result_old/best')
+#agent.load('result/test02/best')
 
 print('>>>>>starting eval')
 max_episode_len = 100
@@ -65,7 +65,7 @@ n_episodes = 100
 
 with agent.eval_mode():
     for i in range(1, n_episodes + 1):
-        obs = env.reset()
+        obs = env.reset(check_visibility=True)
         R = 0  # return (sum of rewards)
         t = 0  # time step
         while True:
