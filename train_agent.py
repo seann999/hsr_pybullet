@@ -57,8 +57,14 @@ class QFCN(nn.Module):
 
 
 if __name__ == '__main__':
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--outdir', default='result/test00')
+    args = parser.parse_args()
+
     env = GraspEnv(connect=p.DIRECT)
-    eval_env = GraspEnv(check_visibility=True, connect=p.DIRECT)
+    # eval_env = GraspEnv(check_visibility=True, connect=p.DIRECT)
     q_func = QFCN()
 
     # Set the discount factor that discounts future rewards.
@@ -115,9 +121,9 @@ if __name__ == '__main__':
         eval_n_episodes=20,       # 10 episodes are sampled for each evaluation
         train_max_episode_len=200,  # Maximum length of each episode
         eval_interval=100,   # Evaluate the agent after every 1000 steps
-        outdir='result',      # Save everything to 'result' directory
+        outdir=args.outdir,      # Save everything to 'result' directory
         save_best_so_far_agent=True,
-        eval_env=eval_env,
+        # eval_env=eval_env,
     )
 
     print('Finished.')

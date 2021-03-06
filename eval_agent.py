@@ -12,7 +12,7 @@ import numpy
 
 from train_agent import QFCN
 
-env = GraspEnv(connect=p.GUI)
+env = GraspEnv(check_visibility=True, connect=p.GUI)
 q_func = QFCN()
 
 # Set the discount factor that discounts future rewards.
@@ -42,30 +42,47 @@ gpu = 0
 #     return hmap
 
 # Now create an agent that will interact with the environment.
-agent = pfrl.agents.DQN(
-    q_func,
-    optimizer,
-    replay_buffer,
-    gamma,
-    explorer,
-    replay_start_size=50,
-    update_interval=1,
-    target_update_interval=1,
-    minibatch_size=1,
-    # phi=phi,
-    gpu=gpu,
-)
 
-agent.load('result/result_old/best')
-#agent.load('result/test02/best')
+class MaxAgent:
+    def __init__(self):
+        pass
+
+    def act(self, obs):
+        hmap = obs[0]
+        print(hmap.shape)
+        a = hmap.flatten().argmax()
+
+        return a
+
+baseline = True
+
+if baseline:
+    agent = MaxAgent()
+else:
+    agent = pfrl.agents.DQN(
+        q_func,
+        optimizer,
+        replay_buffer,
+        gamma,
+        explorer,
+        replay_start_size=50,
+        update_interval=1,
+        target_update_interval=1,
+        minibatch_size=1,
+        # phi=phi,
+        gpu=gpu,
+    )
+
+    agent.load('result/result_old/best')
 
 print('>>>>>starting eval')
 max_episode_len = 100
 n_episodes = 100
 
-with agent.eval_mode():
+
+def do_trials():
     for i in range(1, n_episodes + 1):
-        obs = env.reset(check_visibility=True)
+        obs = env.reset()
         R = 0  # return (sum of rewards)
         t = 0  # time step
         while True:
@@ -81,4 +98,11 @@ with agent.eval_mode():
 
         print('-----')
 
+
+if baseline:
+    do_trials()
+else:
+    with agent.eval_mode():
+        do_trials()
+    
 print('Finished.')

@@ -351,9 +351,9 @@ class HSREnv:
 
 
 class GraspEnv:
-    def __init__(self, check_visibility=False, **kwargs):
+    def __init__(self, check_visibility=False, n_objects=78, **kwargs):
         self.env = HSREnv(**kwargs)
-        self.obj_ids = eu.spawn_ycb(self.env.c_gui, ids=list(range(10)))
+        self.obj_ids = eu.spawn_ycb(self.env.c_gui, ids=list(range(n_objects)))
 
         self.res = 224
         self.px_size = 3.0 / self.res
@@ -407,7 +407,7 @@ class GraspEnv:
 
             rgb, depth, seg, config = self.env.get_heightmap(only_render=True, return_seg=True, bounds=self.hmap_bounds, px_size=self.px_size)
 
-            hmap, cmap, segmap = to_maps(rgb, depth, seg, config, self.hmap_bounds, self.px_size, noise=False)
+            hmap, cmap, segmap = to_maps(rgb, depth, seg, config, self.hmap_bounds, self.px_size, depth_noise=True)
 
             assert hmap.shape[0] == self.res and hmap.shape[1] == self.res, 'resolutions do not match {} {}'.format(hmap.shape, self.res)
 
@@ -464,15 +464,17 @@ class GraspEnv:
         return self.dummy, float(success), True, {}
 
 
-def to_maps(rgb, depth, seg, config, bounds, px_size, noise=False):
+def to_maps(rgb, depth, seg, config, bounds, px_size, depth_noise=False, pos_noise=False, rot_noise=False):
     config = copy.deepcopy(config)
 
-    if noise:
+    if depth_noise:
         if np.random.uniform() < 0.5:
             depth = eu.distort(depth, noise=np.random.uniform(0, 1))
 
-        # config['position'] = np.array(config['position']) + np.random.normal(0, 0.01, 3)
+    if pos_noise:
+        config['position'] = np.array(config['position']) + np.random.normal(0, 0.01, 3)
 
+    if rot_noise:
         rvec = np.random.normal(0, 1, 3)
         rvec /= np.linalg.norm(rvec)
         mag = 1 / 180.0 * np.pi
