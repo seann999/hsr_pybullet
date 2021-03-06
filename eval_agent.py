@@ -12,7 +12,7 @@ import numpy
 
 from train_agent import QFCN
 
-env = GraspEnv(check_visibility=True, connect=p.GUI)
+env = GraspEnv(check_visibility=True, depth_noise=False, connect=p.GUI)
 q_func = QFCN()
 
 # Set the discount factor that discounts future rewards.
@@ -49,12 +49,11 @@ class MaxAgent:
 
     def act(self, obs):
         hmap = obs[0]
-        print(hmap.shape)
         a = hmap.flatten().argmax()
 
         return a
 
-baseline = True
+baseline = False
 
 if baseline:
     agent = MaxAgent()
@@ -73,7 +72,7 @@ else:
         gpu=gpu,
     )
 
-    agent.load('result/result_old/best')
+    agent.load('result/test03/best')
 
 print('>>>>>starting eval')
 max_episode_len = 100
@@ -104,5 +103,5 @@ if baseline:
 else:
     with agent.eval_mode():
         do_trials()
-    
+
 print('Finished.')

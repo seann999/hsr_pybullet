@@ -351,7 +351,7 @@ class HSREnv:
 
 
 class GraspEnv:
-    def __init__(self, check_visibility=False, n_objects=78, **kwargs):
+    def __init__(self, check_visibility=False, n_objects=78, depth_noise=False, **kwargs):
         self.env = HSREnv(**kwargs)
         self.obj_ids = eu.spawn_ycb(self.env.c_gui, ids=list(range(n_objects)))
 
@@ -368,6 +368,7 @@ class GraspEnv:
         self.spawn_area = [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
 
         self.check_visibility = check_visibility
+        self.depth_noise = depth_noise
 
         # self.pos = []
         # self.rot = []
@@ -407,7 +408,7 @@ class GraspEnv:
 
             rgb, depth, seg, config = self.env.get_heightmap(only_render=True, return_seg=True, bounds=self.hmap_bounds, px_size=self.px_size)
 
-            hmap, cmap, segmap = to_maps(rgb, depth, seg, config, self.hmap_bounds, self.px_size, depth_noise=True)
+            hmap, cmap, segmap = to_maps(rgb, depth, seg, config, self.hmap_bounds, self.px_size, depth_noise=self.depth_noise)
 
             assert hmap.shape[0] == self.res and hmap.shape[1] == self.res, 'resolutions do not match {} {}'.format(hmap.shape, self.res)
 
