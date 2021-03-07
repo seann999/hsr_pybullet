@@ -62,9 +62,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--outdir', default='result/test00')
     parser.add_argument('--depth-noise', action='store_true')
+    parser.add_argument('--rot-noise', action='store_true')
     args = parser.parse_args()
 
-    env = GraspEnv(connect=p.DIRECT, depth_noise=args.depth_noise)
+    env = GraspEnv(connect=p.DIRECT, depth_noise=args.depth_noise, rot_noise=args.rot_noise)
     # eval_env = GraspEnv(check_visibility=True, connect=p.DIRECT)
     q_func = QFCN()
 
