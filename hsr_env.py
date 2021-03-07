@@ -10,12 +10,10 @@ import env_utils as eu
 import ravens.utils.utils as ru
 from gym.spaces import Box, Discrete
 
-
 DISTAL_OPEN = -np.pi * 0.25
 DISTAL_CLOSE = 0
 PROXIMAL_OPEN = 1
 PROXIMAL_CLOSE = -0.1
-
 
 CAMERA_CONFIG = [{
     'image_size': (480, 640),
@@ -104,7 +102,7 @@ class HSREnv:
         self.marker_id = c_gui.createMultiBody(basePosition=[0, 0, 0], baseCollisionShapeIndex=-1,
                                                baseVisualShapeIndex=vs_id)
 
-        #print(self.robot.get_joint_infos())
+        # print(self.robot.get_joint_infos())
 
     def get_robot_info(self):
         joints = self.robot.get_joint_infos()
@@ -129,7 +127,8 @@ class HSREnv:
 
         return uppers, lowers, ranges, rest
 
-    def get_heightmap(self, only_render=False, bounds=np.array([[0, 3], [-1.5, 1.5], [0, 0.3]]), px_size=0.01, **kwargs):
+    def get_heightmap(self, only_render=False, bounds=np.array([[0, 3], [-1.5, 1.5], [0, 0.3]]), px_size=0.01,
+                      **kwargs):
         m_pos, m_orn = self.c_gui.getBasePositionAndOrientation(self.marker_id)
         self.c_gui.resetBasePositionAndOrientation(self.marker_id, (0, 100, 0), (0, 0, 0, 1))
 
@@ -139,7 +138,7 @@ class HSREnv:
         camera_config[0]['position'] = list(state.world_link_frame_position)
 
         orn = list(state.world_link_frame_orientation)
-        orn = (R.from_quat(orn) * R.from_euler('YZ', [0.5*np.pi, -0.5*np.pi])).as_quat()
+        orn = (R.from_quat(orn) * R.from_euler('YZ', [0.5 * np.pi, -0.5 * np.pi])).as_quat()
 
         camera_config[0]['rotation'] = orn
 
@@ -175,7 +174,8 @@ class HSREnv:
                 self.c_gui.resetJointState(self.robot.id, j.joint_index, v)
 
             self.c_gui.setJointMotorControl2(self.robot.id, j.joint_index, p.POSITION_CONTROL,
-                                         targetPosition=v, maxVelocity=j.joint_max_velocity, force=j.joint_max_force)
+                                             targetPosition=v, maxVelocity=j.joint_max_velocity,
+                                             force=j.joint_max_force)
 
         if sim:
             self.steps()
@@ -350,8 +350,14 @@ class HSREnv:
         self.move_ee(pos + np.array([0, 0, 0.3]), down)
 
 
+DEFAULT_CONFIG = {
+    'depth_noise': False,
+    'rot_noise': False,
+}
+
+
 class GraspEnv:
-    def __init__(self, check_visibility=False, n_objects=78, depth_noise=False, rot_noise=False, **kwargs):
+    def __init__(self, check_visibility=False, n_objects=78, config=DEFAULT_CONFIG, **kwargs):
         action_grasp = True
         action_look = False
 
@@ -362,7 +368,7 @@ class GraspEnv:
         self.px_size = 3.0 / self.res
 
         self.observation_space = Box(-1, 1, (self.res, self.res))
-        n_actions = (int(action_grasp) + int(action_look)) * self.res*self.res
+        n_actions = (int(action_grasp) + int(action_look)) * self.res * self.res
         self.action_space = Discrete(n_actions)
 
         self.hmap = None
@@ -372,14 +378,7 @@ class GraspEnv:
         self.spawn_area = [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
 
         self.check_visibility = check_visibility
-        self.depth_noise = depth_noise
-        self.rot_noise = rot_noise
-
-        # self.pos = []
-        # self.rot = []
-        # for _ in self.obj_ids:
-        #     self.pos.append([np.random.uniform(self.spawn_area[0][i], self.spawn_area[1][i]) for i in range(3)])
-        #     self.rot.append(R.random().as_quat())
+        self.config = config
 
     def reset(self):
         for id in self.obj_ids:
@@ -408,16 +407,20 @@ class GraspEnv:
                 'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
             }, sim=False)
 
-            for _ in range(240*5):
+            for _ in range(240 * 5):
                 self.env.c_gui.stepSimulation()
 
-            rgb, depth, seg, config = self.env.get_heightmap(only_render=True, return_seg=True, bounds=self.hmap_bounds, px_size=self.px_size)
+            rgb, depth, seg, config = self.env.get_heightmap(only_render=True, return_seg=True, bounds=self.hmap_bounds,
+                                                             px_size=self.px_size)
 
-            hmap, cmap, segmap = to_maps(rgb, depth, seg, config, self.hmap_bounds, self.px_size, depth_noise=self.depth_noise, rot_noise=self.rot_noise)
+            hmap, cmap, segmap = to_maps(rgb, depth, seg, config, self.hmap_bounds, self.px_size,
+                                         depth_noise=self.config['depth_noise'], rot_noise=self.config['rot_noise'])
 
-            assert hmap.shape[0] == self.res and hmap.shape[1] == self.res, 'resolutions do not match {} {}'.format(hmap.shape, self.res)
+            assert hmap.shape[0] == self.res and hmap.shape[1] == self.res, 'resolutions do not match {} {}'.format(
+                hmap.shape, self.res)
 
-            if not self.check_visibility or np.logical_and(self.obj_ids[0] <= segmap, self.obj_ids[-1] >= segmap).sum() > 0:
+            if not self.check_visibility or np.logical_and(self.obj_ids[0] <= segmap,
+                                                           self.obj_ids[-1] >= segmap).sum() > 0:
                 break
 
         self.hmap = hmap
