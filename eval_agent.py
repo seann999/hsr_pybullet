@@ -10,14 +10,6 @@ if __name__ == '__main__':
     config = {'depth_noise': True, 'rot_noise': True}
     env = GraspEnv(check_visibility=True, config=config, n_objects=10, connect=p.GUI)
     q_func = QFCN(debug=False)
-
-    # Set the discount factor that discounts future rewards.
-    gamma = 1
-
-    # Use epsilon-greedy for exploration
-    explorer = pfrl.explorers.LinearDecayEpsilonGreedy(
-        0.5, 0.1, 1000, random_action_func=env.action_space.sample)
-    optimizer = torch.optim.Adam(q_func.parameters(), eps=3e-4)
     replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6)
 
     gpu = 0
@@ -39,10 +31,10 @@ if __name__ == '__main__':
     else:
         agent = pfrl.agents.DQN(
             q_func,
-            optimizer,
+            None,
             replay_buffer,
-            gamma,
-            explorer,
+            0,
+            None,
             gpu=gpu,
         )
 
