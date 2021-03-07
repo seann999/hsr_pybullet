@@ -1,22 +1,20 @@
-from hsr_env import GraspEnv, to_maps
+from hsr_env import GraspEnv
 import pybullet as p
 import numpy as np
-import matplotlib.pyplot as plt
 import pfrl
 import torch
 import torch.nn as nn
-import gym
-import numpy
 from fcn_model import FCN
 
 
 class QFCN(nn.Module):
-    def __init__(self):
+    def __init__(self, debug=False):
         super().__init__()
 
         rots = 16
 
         self.model = FCN(rots)
+        self.debug = debug
 
     def forward(self, x):
         bs = len(x)
@@ -27,29 +25,28 @@ class QFCN(nn.Module):
 
         out = out.permute(1, 0, 2, 3)  # N x R x H x W
 
-        import matplotlib.pyplot as plt
+        if self.debug:
+            import matplotlib.pyplot as plt
 
-        # out_np = out.detach().cpu().numpy()
-        # f = np.vstack([np.hstack([out_np[0, i, :, :] for i in range(x*4,(x+1)*4)]) for x in range(4)])
+            out_np = out.detach().cpu().numpy()
+            f = np.vstack([np.hstack([out_np[0, i, :, :] for i in range(x*4,(x+1)*4)]) for x in range(4)])
 
-        # plt.subplot(121)
+            plt.subplot(121)
 
-        # action = out_np[0].flatten().argmax()
-        # res = 224
-        # loc_idx = action % (res * res)
-        # px_y = int(loc_idx / res)
-        # px_x = int(loc_idx % res)
-        # print('VIZ A:', action)
-        # print('VIZ:', px_x, px_y)
+            action = out_np[0].flatten().argmax()
+            res = 224
+            loc_idx = action % (res * res)
+            px_y = int(loc_idx / res)
+            px_x = int(loc_idx % res)
 
-        # plt.imshow(x.cpu().numpy()[0, 0])
-        # plt.plot([px_x], [px_y], '*r')
-        # plt.subplot(122)
-        # plt.imshow(f, vmin=0)
-        # plt.colorbar()
-        # plt.gcf().set_size_inches(10, 8)
-        # plt.tight_layout()
-        # plt.show()
+            plt.imshow(x.cpu().numpy()[0, 0])
+            plt.plot([px_x], [px_y], '*r')
+            plt.subplot(122)
+            plt.imshow(f, vmin=0)
+            plt.colorbar()
+            plt.gcf().set_size_inches(10, 8)
+            plt.tight_layout()
+            plt.show()
 
         out = out.reshape(bs, -1)  # N x RHW
 

@@ -352,6 +352,9 @@ class HSREnv:
 
 class GraspEnv:
     def __init__(self, check_visibility=False, n_objects=78, depth_noise=False, **kwargs):
+        action_grasp = True
+        action_look = False
+
         self.env = HSREnv(**kwargs)
         self.obj_ids = eu.spawn_ycb(self.env.c_gui, ids=list(range(n_objects)))
 
@@ -359,7 +362,8 @@ class GraspEnv:
         self.px_size = 3.0 / self.res
 
         self.observation_space = Box(-1, 1, (self.res, self.res))
-        self.action_space = Discrete(self.res*self.res)
+        n_actions = (int(action_grasp) + int(action_look)) * self.res*self.res
+        self.action_space = Discrete(n_actions)
 
         self.hmap = None
 
