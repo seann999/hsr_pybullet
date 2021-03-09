@@ -14,6 +14,7 @@ DISTAL_OPEN = -np.pi * 0.25
 DISTAL_CLOSE = 0
 PROXIMAL_OPEN = 1
 PROXIMAL_CLOSE = -0.1
+BOUNDS = 3
 
 CAMERA_CONFIG = [{
     'image_size': (480, 640),
@@ -67,6 +68,13 @@ def set_joint_position(client, robot, joint_position, max_forces=None, use_joint
     for i in range(len(joint_position)):
         client.setJointMotorControl2(robot.id, robot.free_joint_indices[i], p.POSITION_CONTROL,
                                      targetPosition=joint_position[i], maxVelocity=vels[i], force=force[i])
+
+
+def pose2mat(pos, orn):
+    m = np.eye(4)
+    m[:3, -1] = pos
+    m[:3, :3] = R.from_quat(orn).as_matrix()
+    return m
 
 
 class HSREnv:
@@ -132,18 +140,28 @@ class HSREnv:
         m_pos, m_orn = self.c_gui.getBasePositionAndOrientation(self.marker_id)
         self.c_gui.resetBasePositionAndOrientation(self.marker_id, (0, 100, 0), (0, 0, 0, 1))
 
-        state = self.robot.get_link_state_by_name('head_rgbd_sensor_gazebo_frame_joint')
+        head_state = self.robot.get_link_state_by_name('head_rgbd_sensor_gazebo_frame_joint')
+        orn = list(head_state.world_link_frame_orientation)
+        orn = (R.from_quat(orn) * R.from_euler('YZ', [0.5 * np.pi, -0.5 * np.pi])).as_quat()
+        head_pose = list(head_state.world_link_frame_position), orn
+        head_mat = pose2mat(*head_pose)
+
+        base_state = self.robot.get_link_state_by_name('base_footprint_joint')
+        base_pose = list(base_state.world_link_frame_position), list(base_state.world_link_frame_orientation)
+        base_mat = pose2mat(*base_pose)
 
         camera_config = copy.deepcopy(CAMERA_CONFIG)
-        camera_config[0]['position'] = list(state.world_link_frame_position)
-
-        orn = list(state.world_link_frame_orientation)
-        orn = (R.from_quat(orn) * R.from_euler('YZ', [0.5 * np.pi, -0.5 * np.pi])).as_quat()
-
+        camera_config[0]['position'] = list(head_state.world_link_frame_position)
         camera_config[0]['rotation'] = orn
 
         if only_render:
             rgb, depth, seg = eu.render_camera(self.c_gui, camera_config[0])
+
+            head_rel_mat = np.matmul(np.linalg.inv(base_mat), head_mat)
+            camera_config[0]['position'] = head_rel_mat[:3, -1]
+            camera_config[0]['rotation'] = R.from_matrix(head_rel_mat[:3, :3]).as_quat()
+            camera_config[0]['base_frame'] = base_mat
+
             out = rgb, depth, seg, camera_config[0]
         else:
             out = eu.get_heightmaps(self.c_gui, camera_config, bounds=bounds, px_size=px_size, **kwargs)
@@ -157,6 +175,57 @@ class HSREnv:
 
     def close_gripper(self):
         self.gripper_command(False)
+
+    def look_at(self, v, sim=False):
+        orig_q = list(self.robot.get_states()['joint_position'])
+        curr_q = np.array(orig_q)
+        self.reset_joints(orig_q, False)
+        cam_axis = [1, 0, 0]
+
+        for _ in range(100):
+            curr_state = self.robot_direct.get_link_state_by_name('head_rgbd_sensor_gazebo_frame_joint')
+            head_pos = np.array(curr_state.world_link_frame_position)
+            head_orn = np.array(curr_state.world_link_frame_orientation)
+            head_mat = pose2mat(head_pos, head_orn)
+
+            point_head = np.linalg.inv(head_mat).dot([v[0], v[1], v[2], 1.0])[:3]
+            error_angle = np.arccos(np.dot(point_head, cam_axis) / np.linalg.norm(point_head))
+
+            if np.abs(error_angle) > 0.5 * np.pi:
+                curr_q[2] += np.pi
+            else:
+                if error_angle <= 0.01 * np.pi:
+                    break
+
+                normal_head = np.cross(cam_axis, point_head)
+                normal_world = head_mat[:3, :3].dot(normal_head)
+                normed_normal_world = normal_world / np.linalg.norm(normal_world)
+                step_size = 0.5
+                correction_euler = R.from_rotvec(normed_normal_world * step_size * error_angle).as_euler('xyz')
+
+                link_id = self.robot_direct.get_joint_indices_by_names(['head_rgbd_sensor_gazebo_frame_joint'])[0]
+                link_id = int(link_id)
+                zeros = [0.0] * len(orig_q)
+                j_t, j_r = self.c_direct.calculateJacobian(self.robot_direct.id, link_id, [0, 0, 0], orig_q,
+                                                           zeros, zeros)
+
+                j_r = np.array(j_r).T
+
+                correction_conf = j_r.dot(correction_euler)
+                mask = np.zeros_like(correction_conf)
+                mask[2] = 1.0
+                mask[5] = 1.0
+                correction_conf *= mask
+
+                curr_q = curr_q + correction_conf
+
+            self.reset_joints(curr_q, False)
+
+        if sim:
+            self.set_joint_position(curr_q, True)
+            self.steps()
+        else:
+            self.reset_joints(curr_q, True)
 
     def set_joint_position(self, q, gui):
         if gui:
@@ -280,8 +349,8 @@ class HSREnv:
         self.reset_joints(orig_q, False)
 
         lowers, uppers = list(self.lowers), list(self.uppers)
-        lowers[2] = 0  # -np.pi * 0.2
-        uppers[2] = 0  # np.pi * 0.2
+        lowers[2] = orig_q[2]  # -np.pi * 0.2
+        uppers[2] = orig_q[2]  # np.pi * 0.2
 
         success = False
 
@@ -337,140 +406,239 @@ class HSREnv:
         steps = 240 * t
         self.steps(steps, stop_at_contact=stop_at_contact)
 
-    def grasp_primitive(self, pos, angle=0, stop_at_contact=False):
-        pos = np.array(pos)
-        down = p.getQuaternionFromEuler([np.pi, 0, angle])
+    def grasp_primitive(self, pos, angle=0, frame=None, stop_at_contact=False):
+        if frame is None:
+            frame = np.eye(4)
 
-        self.move_ee(pos + np.array([0, 0, 0.3]), down)
-        self.open_gripper()
-        self.move_ee(pos, down, stop_at_contact=stop_at_contact)
-        # input('close?')
-        self.close_gripper()
-        # input('ok?')
-        self.move_ee(pos + np.array([0, 0, 0.3]), down)
+        mat = np.eye(4)
+        mat[:3, -1] = pos
+        down = p.getQuaternionFromEuler([np.pi, 0, angle])
+        mat[:3, :3] = R.from_quat(down).as_matrix()
+
+        mat = frame.dot(mat)
+        pos = mat[:3, -1]
+        down = R.from_matrix(mat[:3, :3]).as_quat()
+
+        if np.abs(pos[0]) < BOUNDS and np.abs(pos[1]) < BOUNDS:
+            self.move_ee(pos + np.array([0, 0, 0.3]), down)
+            self.open_gripper()
+            self.move_ee(pos, down, stop_at_contact=stop_at_contact)
+            # input('close?')
+            self.close_gripper()
+            # input('ok?')
+            self.move_ee(pos + np.array([0, 0, 0.3]), down)
+
+            return True
+
+        return False
 
 
 DEFAULT_CONFIG = {
     'depth_noise': False,
     'rot_noise': False,
+    'action_grasp': True,
+    'action_look': False,
 }
 
 
 class GraspEnv:
     def __init__(self, check_visibility=False, n_objects=78, config=DEFAULT_CONFIG, **kwargs):
-        action_grasp = True
-        action_look = False
-
         self.env = HSREnv(**kwargs)
         self.obj_ids = eu.spawn_ycb(self.env.c_gui, ids=list(range(n_objects)))
 
         self.res = 224
         self.px_size = 3.0 / self.res
+        self.num_rots = 16
 
         self.observation_space = Box(-1, 1, (self.res, self.res))
-        n_actions = (int(action_grasp) + int(action_look)) * self.res * self.res
+        self.config = config
+
+        n_actions = (int(config['action_grasp']) * self.num_rots + int(config['action_look'])) * self.res * self.res
         self.action_space = Discrete(n_actions)
 
-        self.hmap = None
+        self.hmap, self.obs_config, self.segmap = None, None, None
 
         self.dummy = np.zeros((3, self.res, self.res), dtype=np.float32)
         self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 0.3]])
-        self.spawn_area = [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
+        # self.spawn_area = [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
+        self.spawn_radius = 3
 
         self.check_visibility = check_visibility
-        self.config = config
+        self.steps = 0
+
+    def random_action_sample(self):
+        primitive = np.random.randint(int(self.config['action_grasp']) + int(self.config['action_look']))
+        if primitive == 0:
+            return np.random.randint(self.num_rots * self.res * self.res)
+        elif primitive == 1:
+            offset = self.num_rots * self.res * self.res
+            return offset + np.random.randint(self.res * self.res)
+
+        raise Exception('invalid primitive')
 
     def reset(self):
         for id in self.obj_ids:
             self.env.c_gui.resetBasePositionAndOrientation(id, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
             self.env.c_gui.changeDynamics(id, -1, mass=0)
 
-        num_objs = np.random.randint(1, 10)
+        num_objs = np.random.randint(5, 30)
         selected = np.random.permutation(self.obj_ids)[:num_objs]
 
+        self.env.reset_pose()
+
         for i, id in enumerate(selected):
-            x = np.random.uniform(self.spawn_area[0][0], self.spawn_area[1][0])
-            y = np.random.uniform(self.spawn_area[0][1], self.spawn_area[1][1])
-            z = np.random.uniform(self.spawn_area[0][2], self.spawn_area[1][2])
+            # x = np.random.uniform(self.spawn_area[0][0], self.spawn_area[1][0])
+            # y = np.random.uniform(self.spawn_area[0][1], self.spawn_area[1][1])
+            # z = np.random.uniform(self.spawn_area[0][2], self.spawn_area[1][2])
+            theta = np.random.uniform(0, 2.0 * np.pi)
+            dist = np.random.uniform(0.5, self.spawn_radius)
+            x, y = np.cos(theta) * dist, np.sin(theta) * dist
+            z = np.random.uniform(0.4, 0.6)
             pos = (x, y, z)
             # pos = self.pos[i]
 
             self.env.c_gui.resetBasePositionAndOrientation(id, pos, R.random().as_quat())
             self.env.c_gui.changeDynamics(id, -1, mass=0.1)
 
-        self.env.reset_pose()
+        for _ in range(240 * 5):
+            self.env.c_gui.stepSimulation()
 
-        max_tries = 10
-        for _ in range(max_tries):
+        for _ in range(10):
             self.env.move_joints({
+                'joint_rz': np.random.uniform(-np.pi, np.pi),
                 'head_tilt_joint': np.random.uniform(np.pi * -0.25, 0),
-                'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
+                # 'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
             }, sim=False)
 
-            for _ in range(240 * 5):
-                self.env.c_gui.stepSimulation()
-
-            rgb, depth, seg, config = self.env.get_heightmap(only_render=True, return_seg=True, bounds=self.hmap_bounds,
-                                                             px_size=self.px_size)
-
-            hmap, cmap, segmap = to_maps(rgb, depth, seg, config, self.hmap_bounds, self.px_size,
-                                         depth_noise=self.config['depth_noise'], rot_noise=self.config['rot_noise'])
-
-            assert hmap.shape[0] == self.res and hmap.shape[1] == self.res, 'resolutions do not match {} {}'.format(
-                hmap.shape, self.res)
-
-            if not self.check_visibility or np.logical_and(self.obj_ids[0] <= segmap,
-                                                           self.obj_ids[-1] >= segmap).sum() > 0:
+            if not self.check_visibility or np.logical_and(self.obj_ids[0] <= self.segmap,
+                                                  self.obj_ids[-1] >= self.segmap).sum() > 0:
                 break
 
-        self.hmap = hmap
+        hmap = self.update_obs()
+
+        self.steps = 0
+
+        # import time
+        # for x in np.linspace(0, 2*np.pi, 100):
+        #     self.env.look_at([2 + np.sin(x), np.cos(x), 0])
+        #     time.sleep(0.01)
 
         return np.stack([hmap, hmap, hmap])
 
+    def update_obs(self):
+        rgb, depth, seg, config = self.env.get_heightmap(only_render=True, return_seg=True, bounds=self.hmap_bounds,
+                                                         px_size=self.px_size)
+
+        hmap, cmap, segmap = to_maps(rgb, depth, seg, config, self.hmap_bounds, self.px_size,
+                                     depth_noise=self.config['depth_noise'], rot_noise=self.config['rot_noise'])
+
+        assert hmap.shape[0] == self.res and hmap.shape[1] == self.res, 'resolutions do not match {} {}'.format(
+            hmap.shape, self.res)
+
+        self.hmap = hmap
+        self.obs_config = config
+        self.segmap = segmap
+
+        return hmap
+
     def step(self, action):
-        rot_idx = int(action / (self.res * self.res))
-        loc_idx = action % (self.res * self.res)
-        px_y = int(loc_idx / self.res)
-        px_x = int(loc_idx % self.res)
+        action_type = None
+        max_grasp_idx = self.num_rots * self.res * self.res
 
-        px = [px_y, px_x]
-        num_rots = 16
-        angle = rot_idx * 2 * np.pi / num_rots
-        angle = -angle  # flip
+        if action < max_grasp_idx:
+            rot_idx = int(action / (self.res * self.res))
+            loc_idx = action % (self.res * self.res)
+            grasp_py = int(loc_idx / self.res)
+            grasp_px = int(loc_idx % self.res)
+            action_type = 'grasp'
 
-        # px in y, x axis in that order
+            # import matplotlib.pyplot as plt
+            # plt.imshow(self.hmap)
+            # plt.title('grasp')
+            # plt.plot([grasp_px], [grasp_py], '*r')
+            # plt.show()
+        else:
+            idx = action - max_grasp_idx
+            idx %= (self.res * self.res)
+            look_py = int(idx / self.res)
+            look_px = int(idx % self.res)
+            action_type = 'look'
 
-        x = self.hmap_bounds[0, 0] + px[1] * self.px_size
-        y = self.hmap_bounds[1, 0] + px[0] * self.px_size
+            # import matplotlib.pyplot as plt
+            # plt.imshow(self.hmap)
+            # plt.title('look')
+            # plt.plot([look_px], [look_py], '*r')
+            # plt.show()
 
-        surface_height = 0
-        self.hmap[self.hmap == 0] = surface_height - self.hmap_bounds[2, 0]
+        reward = 0
+        done = False
 
-        z = self.hmap[px[0], px[1]] + self.hmap_bounds[2, 0]
-        z += 0.24 - 0.07
+        # print(action_type)
 
-        self.env.grasp_primitive([x, y, z], angle, stop_at_contact=False)
+        if action_type == 'grasp':
+            grasp_x = [grasp_py, grasp_px]
+            num_rots = 16
+            angle = rot_idx * 2 * np.pi / num_rots
+            angle = -angle  # flip
 
-        self.env.holding_pose()
+            # px in y, x axis in that order
 
-        for _ in range(240):
-            self.env.stepSimulation()
+            x = self.hmap_bounds[0, 0] + grasp_x[1] * self.px_size
+            y = self.hmap_bounds[1, 0] + grasp_x[0] * self.px_size
 
-        success = False
+            surface_height = 0
+            self.hmap[self.hmap == 0] = surface_height - self.hmap_bounds[2, 0]
+            z = self.hmap[grasp_x[0], grasp_x[1]] + self.hmap_bounds[2, 0]
 
-        points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=40)
-        for c in points:
-            if c[2] in self.obj_ids:
-                success = True
-                break
-        if not success:
-            points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=46)
-            for c in points:
-                if c[2] in self.obj_ids:
-                    success = True
-                    break
+            z += 0.24 - 0.07
 
-        return self.dummy, float(success), True, {}
+            if self.env.grasp_primitive([x, y, z], angle, frame=self.obs_config['base_frame'], stop_at_contact=False):
+                self.env.holding_pose()
+
+                for _ in range(240):
+                    self.env.stepSimulation()
+
+                grasp_success = False
+
+                points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=40)
+                for c in points:
+                    if c[2] in self.obj_ids:
+                        grasp_success = True
+                        break
+                if not grasp_success:
+                    points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=46)
+                    for c in points:
+                        if c[2] in self.obj_ids:
+                            grasp_success = True
+                            break
+
+                reward = float(grasp_success)
+                done |= grasp_success
+            else:
+                reward = -0.25
+        elif action_type == 'look':
+            surface_height = 0
+            self.hmap[self.hmap == 0] = surface_height - self.hmap_bounds[2, 0]
+            look_z = self.hmap[look_py, look_px] + self.hmap_bounds[2, 0]
+            look_x = self.hmap_bounds[0, 0] + look_px * self.px_size
+            look_y = self.hmap_bounds[1, 0] + look_py * self.px_size
+
+            look_v = self.obs_config['base_frame'].dot([look_x, look_y, look_z, 1])[:3]
+
+            # if np.abs(look_x) < BOUNDS and np.abs(look_y) < BOUNDS:
+            self.env.look_at(look_v, sim=True)
+
+            # else:
+            #    reward = -0.25
+        else:
+            raise Exception('no valid action')
+
+        self.steps += 1
+        done |= self.steps >= 10
+
+        hmap = self.update_obs()
+
+        return np.stack([hmap, hmap, hmap]), reward, done, {}
 
 
 def to_maps(rgb, depth, seg, config, bounds, px_size, depth_noise=False, pos_noise=False, rot_noise=False):

@@ -74,7 +74,7 @@ POSSIBILITY OF SUCH DAMAGE.
     <child link="link_x"/>
     <origin xyz= "0 0 0.0"/>
     <axis xyz="1 0 0"/>
-    <limit effort="10000.0" lower="-5" upper="5" velocity="0.5"/>
+    <limit effort="10000.0" lower="-10" upper="10" velocity="0.5"/>
     <!--<dynamics damping="0.001"/>-->
   </joint>
 
@@ -83,7 +83,7 @@ POSSIBILITY OF SUCH DAMAGE.
     <child link="link_y"/>
     <origin xyz= "0 0 0.0"/>
     <axis xyz="0 1 0"/>
-    <limit effort="10000.0" lower="-5" upper="5" velocity="0.5"/>
+    <limit effort="10000.0" lower="-10" upper="10" velocity="0.5"/>
     <!--<dynamics damping="0.001"/>-->
   </joint>
 

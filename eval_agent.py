@@ -1,18 +1,26 @@
 from hsr_env import GraspEnv
 import pybullet as p
 import pfrl
-import torch
+import argparse
+import cv2
+import numpy as np
 
 from train_agent import QFCN
 
-
 if __name__ == '__main__':
-    config = {'depth_noise': True, 'rot_noise': True}
-    env = GraspEnv(check_visibility=True, config=config, n_objects=10, connect=p.GUI)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--agent', type=str, default='random')
+    parser.add_argument('--show-hmap', action='store_true')
+    args = parser.parse_args()
+
+    config = {'depth_noise': True, 'rot_noise': True, 'action_grasp': True,
+              'action_look': True, }
+    env = GraspEnv(check_visibility=False, config=config, n_objects=30, connect=p.GUI)
     q_func = QFCN(debug=False)
     replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6)
 
     gpu = 0
+
 
     class MaxAgent:
         def __init__(self):
@@ -24,10 +32,13 @@ if __name__ == '__main__':
 
             return a
 
-    baseline = False
 
-    if baseline:
+    agent_type = args.agent
+
+    if agent_type == 'max':
         agent = MaxAgent()
+    elif agent_type == 'random':
+        pass
     else:
         agent = pfrl.agents.DQN(
             q_func,
@@ -51,9 +62,17 @@ if __name__ == '__main__':
             R = 0  # return (sum of rewards)
             t = 0  # time step
             while True:
+                if args.show_hmap:
+                    cv2.imshow('hmap', np.uint8(obs[0] / obs[0].max() * 255))
+                    cv2.waitKey(1)
+
                 # Uncomment to watch the behavior in a GUI window
                 # env.render()
-                action = agent.act(obs)
+                if agent_type == 'random':
+                    action = env.random_action_sample()
+                else:
+                    action = agent.act(obs)
+
                 obs, reward, done, _ = env.step(action)
                 R += reward
                 t += 1
@@ -64,7 +83,7 @@ if __name__ == '__main__':
             print('-----')
 
 
-    if baseline:
+    if agent_type == 'max' or agent_type == 'random':
         do_trials()
     else:
         with agent.eval_mode():

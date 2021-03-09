@@ -41,12 +41,13 @@ class QFCN(nn.Module):
 
         rots = 16
 
-        self.model = FCN(rots)
+        self.grasp_model = FCN(rots)
+        self.look_model = FCN(1)
         self.debug = debug
 
     def forward(self, x):
         bs = len(x)
-        out = self.model(x)
+        out = self.grasp_model(x)
 
         out = torch.stack(out)  # R x N x 1 x H x W
         out = out.squeeze(2)  # R x N x H x W
@@ -55,6 +56,9 @@ class QFCN(nn.Module):
 
         if self.debug:
             show_viz(x, out)
+
+        look_out = self.look_model(x)
+        print(look_out.shape)
 
         out = out.reshape(bs, -1)  # N x RHW
 
@@ -65,6 +69,8 @@ def args2config(args):
     return {
         'depth_noise': args.depth_noise,
         'rot_noise': args.rot_noise,
+        'action_grasp': True,
+        'action_look': True,
     }
 
 
@@ -89,10 +95,10 @@ if __name__ == '__main__':
     # eval_env = GraspEnv(check_visibility=True, connect=p.DIRECT)
     q_func = QFCN()
 
-    gamma = 1
+    gamma = 0.5
 
     explorer = pfrl.explorers.LinearDecayEpsilonGreedy(
-        0.5, 0.1, 1000, random_action_func=env.action_space.sample)
+        0.5, 0.1, 1000, random_action_func=env.random_action_sample)
     optimizer = torch.optim.Adam(q_func.parameters(), eps=3e-4)
     replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6, betasteps=1000)
 
