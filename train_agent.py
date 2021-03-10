@@ -58,8 +58,8 @@ class QFCN(nn.Module):
             show_viz(x, out)
 
         look_out = self.look_model(x)
-        print(look_out.shape)
 
+        out = torch.cat([out, look_out], 1)
         out = out.reshape(bs, -1)  # N x RHW
 
         return pfrl.action_value.DiscreteActionValue(out)
@@ -79,6 +79,7 @@ if __name__ == '__main__':
     parser.add_argument('--outdir', type=str, default='result/test00')
     parser.add_argument('--depth-noise', action='store_true')
     parser.add_argument('--rot-noise', action='store_true')
+    parser.add_argument('--test-run', action='store_true')
     args = parser.parse_args()
 
     config = args2config(args)
@@ -98,9 +99,9 @@ if __name__ == '__main__':
     gamma = 0.5
 
     explorer = pfrl.explorers.LinearDecayEpsilonGreedy(
-        0.5, 0.1, 1000, random_action_func=env.random_action_sample)
+        0.5, 0.1, 5000, random_action_func=env.random_action_sample)
     optimizer = torch.optim.Adam(q_func.parameters(), eps=3e-4)
-    replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6, betasteps=1000)
+    replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6, betasteps=5000)
 
     gpu = 0
 
@@ -110,10 +111,10 @@ if __name__ == '__main__':
         replay_buffer,
         gamma,
         explorer,
-        replay_start_size=50,
+        replay_start_size=1 if args.test_run else 100,
         update_interval=1,
         target_update_interval=1,
-        minibatch_size=32,
+        minibatch_size=1 if args.test_run else 32,
         gpu=gpu,
     )
 
@@ -122,7 +123,7 @@ if __name__ == '__main__':
     pfrl.experiments.train_agent_with_evaluation(
         agent,
         env,
-        steps=20000,
+        steps=50000,
         eval_n_steps=None,
         eval_n_episodes=20,
         train_max_episode_len=200,
