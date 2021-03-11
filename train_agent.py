@@ -28,9 +28,11 @@ def show_viz(x, out):
     px_y = int(loc_idx / res)
     px_x = int(loc_idx % res)
 
+    plt.title('input heightmap')
     plt.imshow(x.cpu().numpy()[0, 0])
     plt.plot([px_x], [px_y], '*r')
     plt.subplot(122)
+    plt.title('Q maps')
     plt.imshow(f, vmin=0)
     plt.colorbar()
     plt.gcf().set_size_inches(10, 8)
