@@ -7,6 +7,8 @@ import torch.nn as nn
 from fcn_model import FCN
 import logging
 import sys
+import matplotlib as mpl
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 import argparse
 import os
@@ -17,6 +19,7 @@ def show_viz(x, out):
     out_np = out.detach().cpu().numpy()
     f = np.vstack([np.hstack([out_np[0, i, :, :] for i in range(x * 4, (x + 1) * 4)]) for x in range(4)])
 
+    plt.clf()
     plt.subplot(121)
 
     action = out_np[0].flatten().argmax()
@@ -32,7 +35,8 @@ def show_viz(x, out):
     plt.colorbar()
     plt.gcf().set_size_inches(10, 8)
     plt.tight_layout()
-    plt.show()
+    #plt.show()
+    plt.savefig('debug.png')
 
 
 class QFCN(nn.Module):

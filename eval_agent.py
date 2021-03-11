@@ -1,3 +1,10 @@
+import sys
+
+try:
+    sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
+except:
+    pass
+
 from hsr_env import GraspEnv
 import pybullet as p
 import pfrl
@@ -11,12 +18,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--agent', type=str, default='random')
     parser.add_argument('--show-hmap', action='store_true')
+    parser.add_argument('--debug-agent', action='store_true')
+    parser.add_argument('--model', type=str, default='')
     args = parser.parse_args()
 
     config = {'depth_noise': True, 'rot_noise': True, 'action_grasp': True,
               'action_look': True, }
     env = GraspEnv(check_visibility=False, config=config, n_objects=30, connect=p.GUI)
-    q_func = QFCN(debug=False)
+    q_func = QFCN(debug=args.debug_agent)
     replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6)
 
     gpu = 0
@@ -49,7 +58,7 @@ if __name__ == '__main__':
             gpu=gpu,
         )
 
-        agent.load('result/test04/best')
+        agent.load(args.model)
 
     print('>>>>>starting eval')
     max_episode_len = 100
