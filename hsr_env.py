@@ -579,7 +579,6 @@ class GraspEnv:
             grasp_x = [grasp_py, grasp_px]
             num_rots = 16
             angle = rot_idx * 2 * np.pi / num_rots
-            angle = -angle  # flip
 
             # px in y, x axis in that order
 
