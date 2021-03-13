@@ -10,11 +10,12 @@ from train_agent import QFCN
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--agent', type=str, default='random')
+    parser.add_argument('--model', type=str, default='result/test04/best')
     parser.add_argument('--show-hmap', action='store_true')
     args = parser.parse_args()
 
     config = {'depth_noise': True, 'rot_noise': True, 'action_grasp': True,
-              'action_look': True, }
+              'action_look': True, 'spawn_mode': 'box'}
     env = GraspEnv(check_visibility=False, config=config, n_objects=30, connect=p.GUI)
     q_func = QFCN(debug=False)
     replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6)
@@ -49,7 +50,7 @@ if __name__ == '__main__':
             gpu=gpu,
         )
 
-        agent.load('result/test04/best')
+        agent.load(args.model)
 
     print('>>>>>starting eval')
     max_episode_len = 100
