@@ -589,7 +589,6 @@ class GraspEnv:
             grasp_x = [grasp_py, grasp_px]
             num_rots = 16
             angle = rot_idx * 2 * np.pi / num_rots
-            angle = -angle  # flip
 
             # px in y, x axis in that order
 
@@ -655,8 +654,8 @@ def to_maps(rgb, depth, seg, config, bounds, px_size, depth_noise=False, pos_noi
     config = copy.deepcopy(config)
 
     if depth_noise:
-        if np.random.uniform() < 0.5:
-            depth = eu.distort(depth, noise=np.random.uniform(0, 1))
+        #if np.random.uniform() < 0.5:
+        depth = eu.distort(depth, noise=np.random.uniform(0, 1))
 
     if pos_noise:
         config['position'] = np.array(config['position']) + np.random.normal(0, 0.01, 3)

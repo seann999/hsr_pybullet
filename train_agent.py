@@ -7,6 +7,8 @@ import torch.nn as nn
 from fcn_model import FCN
 import logging
 import sys
+import matplotlib as mpl
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 import argparse
 import os
@@ -19,13 +21,13 @@ def show_viz(x, out, look_out):
 
     plt.clf()
     plt.subplot(131)
-
     action = out_np[0].flatten().argmax()
     res = 224
     loc_idx = action % (res * res)
     px_y = int(loc_idx / res)
     px_x = int(loc_idx % res)
 
+    plt.title('input heightmap')
     plt.imshow(x.cpu().numpy()[0, 0])
     plt.plot([px_x], [px_y], '*r')
 
@@ -39,7 +41,8 @@ def show_viz(x, out, look_out):
 
     plt.gcf().set_size_inches(10, 8)
     plt.tight_layout()
-    plt.show()
+    #plt.show()
+    plt.savefig('debug.png')
 
 
 class QFCN(nn.Module):
