@@ -20,11 +20,10 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, default='result/test04/best')
     parser.add_argument('--show-hmap', action='store_true')
     parser.add_argument('--debug-agent', action='store_true')
-    parser.add_argument('--model', type=str, default='')
     args = parser.parse_args()
 
     config = {'depth_noise': True, 'rot_noise': True, 'action_grasp': True,
-              'action_look': True, 'spawn_mode': 'box'}
+              'action_look': True, 'spawn_mode': 'circle'}
     env = GraspEnv(check_visibility=False, config=config, n_objects=30, connect=p.GUI)
     q_func = QFCN(debug=args.debug_agent)
     replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6)
@@ -50,6 +49,9 @@ if __name__ == '__main__':
     elif agent_type == 'random':
         pass
     else:
+        def phi(x):
+            return (x - 0.05) / 0.05
+
         agent = pfrl.agents.DQN(
             q_func,
             None,
@@ -57,6 +59,7 @@ if __name__ == '__main__':
             0,
             None,
             gpu=gpu,
+            phi=phi
         )
 
         agent.load(args.model)
