@@ -12,7 +12,7 @@ import argparse
 import cv2
 import numpy as np
 
-from train_agent import QFCN
+from train_agent import QFCN, phi
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -20,16 +20,16 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, default='result/test04/best')
     parser.add_argument('--show-hmap', action='store_true')
     parser.add_argument('--debug-agent', action='store_true')
+    parser.add_argument('--n-objects', type=int, default=30)
     args = parser.parse_args()
 
     config = {'depth_noise': True, 'rot_noise': True, 'action_grasp': True,
               'action_look': True, 'spawn_mode': 'circle'}
-    env = GraspEnv(check_visibility=False, config=config, n_objects=30, connect=p.GUI)
+    env = GraspEnv(check_visibility=False, config=config, n_objects=args.n_objects, connect=p.GUI)
     q_func = QFCN(debug=args.debug_agent)
     replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6)
 
     gpu = 0
-
 
     class MaxAgent:
         def __init__(self):
@@ -49,9 +49,6 @@ if __name__ == '__main__':
     elif agent_type == 'random':
         pass
     else:
-        def phi(x):
-            return (x - 0.05) / 0.05
-
         agent = pfrl.agents.DQN(
             q_func,
             None,
@@ -67,7 +64,6 @@ if __name__ == '__main__':
     print('>>>>>starting eval')
     max_episode_len = 100
     n_episodes = 100
-
 
     def do_trials():
         for i in range(1, n_episodes + 1):

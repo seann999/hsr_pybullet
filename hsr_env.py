@@ -14,7 +14,7 @@ DISTAL_OPEN = -np.pi * 0.25
 DISTAL_CLOSE = 0
 PROXIMAL_OPEN = 1
 PROXIMAL_CLOSE = -0.1
-BOUNDS = 3
+BOUNDS = 5
 
 CAMERA_CONFIG = [{
     'image_size': (480, 640),
@@ -282,8 +282,8 @@ class HSREnv:
 
     def reset_pose(self):
         neutral = self.holding_config()
-        # neutral[0] = q[0]
-        # neutral[1] = q[1]
+        neutral[0] = -2# q[0]
+        neutral[1] = np.random.uniform(-1, 1)# q[1]
         # neutral[2] = q[2]
 
         self.reset_joints(neutral, True)
@@ -304,6 +304,7 @@ class HSREnv:
 
         for t in range(steps):
             self.c_gui.stepSimulation()
+
             curr = self.robot.get_states()['joint_position']
 
             eq = np.abs(curr - prev) < 1e-4
@@ -447,9 +448,14 @@ DEFAULT_CONFIG = {
 
 
 class GraspEnv:
-    def __init__(self, check_visibility=False, n_objects=78, config=DEFAULT_CONFIG, **kwargs):
+    def __init__(self, check_visibility=False, n_objects=78, config=DEFAULT_CONFIG, setup_room=True, **kwargs):
         self.env = HSREnv(**kwargs)
         self.obj_ids = eu.spawn_ycb(self.env.c_gui, ids=list(range(n_objects)))
+
+        if setup_room:
+            self.furn_ids = self.generate_room()
+        else:
+            self.furn_ids = []
 
         self.res = 224
         self.px_size = 3.0 / self.res
@@ -466,12 +472,108 @@ class GraspEnv:
         self.dummy = np.zeros((3, self.res, self.res), dtype=np.float32)
         self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 0.3]])
 
-        self.spawn_mode = config['spawn_mode']
-        self.spawn_box = [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
+        self.spawn_mode = 'box'# config['spawn_mode']
+        self.spawn_box = [[-1.5, -1, 0.4], [-0.5, 1.5, 0.6]]# [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
         self.spawn_radius = 3
 
         self.check_visibility = check_visibility
         self.steps = 0
+
+        self.object_collision, self.furniture_collision = False, False
+
+        def wrapper(fn):
+            def wrapper():
+                fn()
+
+                if not self.object_collision:
+                    for id in self.obj_ids:
+                        if len(self.env.c_gui.getClosestPoints(self.env.robot.id, id, 0)) > 0:
+                            self.object_collision = True
+                            break
+
+                if not self.furniture_collision:
+                    for id in self.furn_ids:
+                        if len(self.env.c_gui.getClosestPoints(self.env.robot.id, id, 0)) > 0:
+                            self.furniture_collision = True
+                            break
+
+            return wrapper
+
+        self.env.c_gui.stepSimulation = wrapper(self.env.c_gui.stepSimulation)
+
+    def generate_room(self):
+        ids = []
+
+        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_frame/model.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (0, 0, 0), (0, 0, 0, 1))
+        ids.append(x)
+
+        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_bookshelf/model.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (2.7, -1, 0), p.getQuaternionFromEuler([0, 0, -1.57]))
+        ids.append(x)
+
+        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_bin_black/model.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, -1.7, 0), (0, 0, 0, 1))
+        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.3, 1))
+        ids.append(x)
+
+        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_bin_green/model.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, -1.2, 0), (0, 0, 0, 1))
+        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0, 0.7, 0, 1))
+        ids.append(x)
+
+        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_stair_like_drawer/model.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, 1, 0), (0, 0, 0, 1))
+        ids.append(x)
+
+        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/trofast_knob/model-1_4.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, 0.67, 0.1 + 0.115), (0, 0, 0, 1))
+        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(1, 0.5, 0, 1))
+        ids.append(x)
+
+        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/trofast_knob/model-1_4.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, 1, 0.1 + 0.115), (0, 0, 0, 1))
+        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(1, 0.5, 0, 1))
+        ids.append(x)
+
+        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/trofast_knob/model-1_4.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, 1, 0.36 + 0.115), (0, 0, 0, 1))
+        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(1, 0.5, 0, 1))
+        ids.append(x)
+
+        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_tall_table/model.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-0.3, 1.2, 0), (0, 0, 0, 1))
+        ids.append(x)
+
+        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_long_table/model.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-0.3, 0.2, 0), p.getQuaternionFromEuler([0, 0, 1.57]))
+        ids.append(x)
+
+        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_long_table/model.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, -0.3, 0), p.getQuaternionFromEuler([0, 0, 1.57]))
+        ids.append(x)
+
+        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_tray/model.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, -0.75, 0.4), p.getQuaternionFromEuler([0, 0, 1.57]))
+        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.3, 1))
+        ids.append(x)
+
+        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_tray/model.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, -0.45, 0.4), p.getQuaternionFromEuler([0, 0, 1.57]))
+        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.3, 1))
+        ids.append(x)
+
+        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_container_a/model.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, -0.2, 0.4), (0, 0, 0, 1))
+        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.8, 0.0, 0.0, 1))
+        ids.append(x)
+
+        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_container_b/model.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, 0.1, 0.4), (0, 0, 0, 1))
+        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.2, 1))
+        ids.append(x)
+
+        return ids
 
     def random_action_sample(self):
         primitive = np.random.randint(int(self.config['action_grasp']) + int(self.config['action_look']))
@@ -532,6 +634,8 @@ class GraspEnv:
         # for x in np.linspace(0, 2*np.pi, 100):
         #     self.env.look_at([2 + np.sin(x), np.cos(x), 0])
         #     time.sleep(0.01)
+
+        self.object_collision, self.furniture_collision = False, False
 
         return np.stack([hmap, hmap, hmap])
 
@@ -642,8 +746,9 @@ class GraspEnv:
         else:
             raise Exception('no valid action')
 
-        self.steps += 1
-        done |= self.steps >= 10
+        if self.furniture_collision:
+            reward = -0.25
+            done = True
 
         hmap = self.update_obs()
 

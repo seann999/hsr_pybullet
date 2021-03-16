@@ -85,6 +85,11 @@ def args2config(args):
     }
 
 
+def phi(x):
+    # normalize heightmap
+    return (x - 0.05) / 0.05
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--outdir', type=str, default='result/test00')
@@ -116,10 +121,6 @@ if __name__ == '__main__':
 
     gpu = 0
 
-    def phi(x):
-        # normalize heightmap
-        return (x - 0.05) / 0.05
-
     agent = pfrl.agents.DQN(
         q_func,
         optimizer,
@@ -133,8 +134,6 @@ if __name__ == '__main__':
         gpu=gpu,
         phi=phi,
     )
-
-    #agent.load('result/test06-look-noisy/best')
 
     logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='')
 

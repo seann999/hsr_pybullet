@@ -90,7 +90,7 @@ def get_heightmaps(client, configs, bounds=None, return_seg=False, px_size=0.003
     return heightmaps, colormaps, segmaps#, rgbs, depths, segs
 
 
-def spawn_ycb(client, ids=None):
+def spawn_ycb(client, ids=None, area=[[0.5, 3.0], [-1.5, 1.5], [0.4, 0.6]]):
     folders = sorted([x for x in os.listdir('ycb') if os.path.isdir('ycb/{}'.format(x))])
     obj_ids = []
 
@@ -127,7 +127,9 @@ def spawn_ycb(client, ids=None):
 
         obj_id = client.createMultiBody(
             baseMass=0.1,
-            basePosition=(np.random.uniform(0.5, 3.0), np.random.uniform(-1.5, 1.5), np.random.uniform(0.4, 0.6)),
+            basePosition=(np.random.uniform(area[0][0], area[0][1]),
+                          np.random.uniform(area[1][0], area[1][1]),
+                          np.random.uniform(area[2][0], area[2][1])),
             baseCollisionShapeIndex=col_shape_id,
             baseVisualShapeIndex=viz_shape_id,
             baseOrientation=R.random().as_quat(),
