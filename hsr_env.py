@@ -712,21 +712,28 @@ class GraspEnv:
                     self.env.stepSimulation()
 
                 grasp_success = False
+                obj = None
 
                 points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=40)
                 for c in points:
                     if c[2] in self.obj_ids:
                         grasp_success = True
+                        obj = c[2]
                         break
                 if not grasp_success:
                     points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=46)
                     for c in points:
                         if c[2] in self.obj_ids:
                             grasp_success = True
+                            obj = c[2]
                             break
 
-                reward = float(grasp_success)
-                done |= grasp_success
+                if grasp_success:
+                    self.env.c_gui.resetBasePositionAndOrientation(obj, (-100, np.random.uniform(-100, 100), -100),
+                                                                   (0, 0, 0, 1))
+
+                reward = 1 if grasp_success else -0.1
+                # done |= grasp_success
             else:
                 reward = -0.25
         elif action_type == 'look':
