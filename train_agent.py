@@ -104,10 +104,14 @@ if __name__ == '__main__':
 
     explorer = pfrl.explorers.LinearDecayEpsilonGreedy(
         0.5, 0.1, 5000, random_action_func=env.random_action_sample)
-    optimizer = torch.optim.Adam(q_func.parameters(), eps=3e-4)
+    optimizer = torch.optim.Adam(q_func.parameters(), eps=1e-4, weight_decay=1e-4)
     replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6, betasteps=5000)
 
     gpu = 0
+
+    def phi(x):
+        # normalize heightmap
+        return (x - 0.05) / 0.05
 
     agent = pfrl.agents.DQN(
         q_func,
@@ -120,7 +124,10 @@ if __name__ == '__main__':
         target_update_interval=1,
         minibatch_size=1 if args.test_run else 32,
         gpu=gpu,
+        phi=phi,
     )
+
+    #agent.load('result/test06-look-noisy/best')
 
     logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='')
 
@@ -131,7 +138,7 @@ if __name__ == '__main__':
         eval_n_steps=None,
         eval_n_episodes=20,
         train_max_episode_len=200,
-        eval_interval=100,
+        eval_interval=500,
         outdir=args.outdir,
         save_best_so_far_agent=True,
         # eval_env=eval_env,
