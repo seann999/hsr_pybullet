@@ -182,6 +182,9 @@ class HSREnv:
         self.reset_joints(orig_q, False)
         cam_axis = [1, 0, 0]
 
+        self.c_gui.changeVisualShape(self.marker_id, -1, rgbaColor=(0, 1, 0, 1))
+        self.c_gui.resetBasePositionAndOrientation(self.marker_id, v + np.array([0, 0, 0.1]), [0, 0, 0, 1])
+
         for _ in range(100):
             curr_state = self.robot_direct.get_link_state_by_name('head_rgbd_sensor_gazebo_frame_joint')
             head_pos = np.array(curr_state.world_link_frame_position)
@@ -345,6 +348,7 @@ class HSREnv:
     def move_ee(self, pos, orn, open=True, t=10, stop_at_contact=False):
         orig_q = list(self.robot.get_states()['joint_position'])
 
+        self.c_gui.changeVisualShape(self.marker_id, -1, rgbaColor=(1, 0, 0, 1))
         self.c_gui.resetBasePositionAndOrientation(self.marker_id, pos, orn)
         self.reset_joints(orig_q, False)
 
@@ -438,6 +442,7 @@ DEFAULT_CONFIG = {
     'rot_noise': False,
     'action_grasp': True,
     'action_look': False,
+    'spawn_mode': 'box',
 }
 
 
@@ -460,7 +465,9 @@ class GraspEnv:
 
         self.dummy = np.zeros((3, self.res, self.res), dtype=np.float32)
         self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 0.3]])
-        # self.spawn_area = [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
+
+        self.spawn_mode = config['spawn_mode']
+        self.spawn_box = [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
         self.spawn_radius = 3
 
         self.check_visibility = check_visibility
@@ -487,13 +494,16 @@ class GraspEnv:
         self.env.reset_pose()
 
         for i, id in enumerate(selected):
-            # x = np.random.uniform(self.spawn_area[0][0], self.spawn_area[1][0])
-            # y = np.random.uniform(self.spawn_area[0][1], self.spawn_area[1][1])
-            # z = np.random.uniform(self.spawn_area[0][2], self.spawn_area[1][2])
-            theta = np.random.uniform(0, 2.0 * np.pi)
-            dist = np.random.uniform(0.5, self.spawn_radius)
-            x, y = np.cos(theta) * dist, np.sin(theta) * dist
-            z = np.random.uniform(0.4, 0.6)
+            if self.spawn_mode == 'box':
+                x = np.random.uniform(self.spawn_box[0][0], self.spawn_box[1][0])
+                y = np.random.uniform(self.spawn_box[0][1], self.spawn_box[1][1])
+                z = np.random.uniform(self.spawn_box[0][2], self.spawn_box[1][2])
+            else:
+                theta = np.random.uniform(0, 2.0 * np.pi)
+                dist = np.random.uniform(0.5, self.spawn_radius)
+                x, y = np.cos(theta) * dist, np.sin(theta) * dist
+                z = np.random.uniform(0.4, 0.6)
+
             pos = (x, y, z)
             # pos = self.pos[i]
 

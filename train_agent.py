@@ -15,24 +15,30 @@ import os
 import yaml
 
 
-def show_viz(x, out):
+def show_viz(x, out, look_out):
     out_np = out.detach().cpu().numpy()
     f = np.vstack([np.hstack([out_np[0, i, :, :] for i in range(x * 4, (x + 1) * 4)]) for x in range(4)])
 
     plt.clf()
-    plt.subplot(121)
-
+    plt.subplot(131)
     action = out_np[0].flatten().argmax()
     res = 224
     loc_idx = action % (res * res)
     px_y = int(loc_idx / res)
     px_x = int(loc_idx % res)
 
+    plt.title('input heightmap')
     plt.imshow(x.cpu().numpy()[0, 0])
     plt.plot([px_x], [px_y], '*r')
-    plt.subplot(122)
-    plt.imshow(f, vmin=0)
+
+    plt.subplot(132)
+    plt.imshow(f, vmin=0, vmax=1)
     plt.colorbar()
+
+    plt.subplot(133)
+    plt.imshow(look_out.detach().cpu().numpy()[0, 0], vmin=0, vmax=1)
+    plt.colorbar()
+
     plt.gcf().set_size_inches(10, 8)
     plt.tight_layout()
     #plt.show()
@@ -58,10 +64,10 @@ class QFCN(nn.Module):
 
         out = out.permute(1, 0, 2, 3)  # N x R x H x W
 
-        if self.debug:
-            show_viz(x, out)
-
         look_out = self.look_model(x)
+
+        if self.debug:
+            show_viz(x, out, look_out)
 
         out = torch.cat([out, look_out], 1)
         out = out.reshape(bs, -1)  # N x RHW
@@ -75,6 +81,7 @@ def args2config(args):
         'rot_noise': args.rot_noise,
         'action_grasp': True,
         'action_look': True,
+        'spawn_mode': 'circle'
     }
 
 
