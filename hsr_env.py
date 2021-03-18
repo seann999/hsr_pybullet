@@ -94,6 +94,7 @@ class HSREnv:
         px_direct = px.Client(client_id=c_direct._client)
         self.robot_direct = px.Robot('hsrb_description/robots/hsrb.urdf', use_fixed_base=True, physics_client=px_direct)
 
+        c_gui.changeVisualShape(self.robot.id, 15, rgbaColor=(1, 0.5, 0, 1))
         c_gui.changeVisualShape(self.robot.id, 34, rgbaColor=(0, 1, 0, 1))
         c_gui.changeVisualShape(self.robot.id, 35, rgbaColor=(1, 0, 0, 1))
         c_gui.changeVisualShape(self.robot.id, 38, rgbaColor=(1, 0, 1, 1))
@@ -487,7 +488,7 @@ class GraspEnv:
 
                 if not self.object_collision:
                     for id in self.obj_ids:
-                        if len(self.env.c_gui.getClosestPoints(self.env.robot.id, id, 0)) > 0:
+                        if len(self.env.c_gui.getClosestPoints(self.env.robot.id, id, 0, 15, -1)) > 0:
                             self.object_collision = True
                             break
 
@@ -753,7 +754,7 @@ class GraspEnv:
         else:
             raise Exception('no valid action')
 
-        if self.furniture_collision:
+        if self.furniture_collision or self.object_collision:
             reward = -0.25
             done = True
 
