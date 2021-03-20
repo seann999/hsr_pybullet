@@ -26,12 +26,25 @@ class FCN(nn.Module):
             nn.Conv2d(64, 1, 1, 1),
         )
 
+    def cat_meshgrid(self, input):
+        x = torch.abs(torch.linspace(-0.5, 0.5, steps=input.shape[-2]))
+        x = torch.tensor(x)  # side
+        y = torch.tensor(torch.linspace(0, 1, steps=input.shape[-1]))  # forward
+        grid_x, grid_y = torch.meshgrid(x, y)
+
+        x = torch.cat([input, grid_x, grid_y], 1)
+
+        return x
+
     def forward(self, x):
         bs = len(x)
         # y = self.end(self.backbone(x))
 
         # assert x.shape[-2:] == y.shape[-2:], 'input =/= output shape {} {}'.format(x.shape, y.shape)
         output_prob = []
+
+        x = x[:, 0:1]
+        x = self.cat_meshgrid(x)
 
         if self.num_rotations == 1:
             return self.end(self.backbone(x))
