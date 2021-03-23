@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import argparse
 import os
 import yaml
+import functools
 
 
 def show_viz(x, out, look_out):
@@ -81,13 +82,30 @@ def args2config(args):
         'rot_noise': args.rot_noise,
         'action_grasp': True,
         'action_look': True,
-        'spawn_mode': 'circle'
+        'spawn_mode': 'circle',
+        'res': 224,
+        'rots': 16,
     }
 
 
 def phi(x):
     # normalize heightmap
-    return (x - 0.05) / 0.05
+    return (x - 0.2) / 0.2
+
+
+def make_env(idx, config):
+    env = GraspEnv(connect=p.DIRECT, config=config)
+    env.set_seed(idx)
+    return env
+
+
+def make_batch_env(config):
+    vec_env = pfrl.envs.MultiprocessVectorEnv([
+        functools.partial(make_env, idx, config)
+        for idx, env in enumerate(range(8))
+    ])
+    
+    return vec_env
 
 
 if __name__ == '__main__':
@@ -108,16 +126,17 @@ if __name__ == '__main__':
     with open(os.path.join(args.outdir, 'config.yaml'), 'w') as file:
         yaml.dump(config, file)
 
-    env = GraspEnv(connect=p.DIRECT, config=config)
+    # eval_env = GraspEnv(connect=p.DIRECT, config=config)
     # eval_env = GraspEnv(check_visibility=True, connect=p.DIRECT)
+    env = make_batch_env(config)
     q_func = QFCN()
 
     gamma = 0.5
 
     explorer = pfrl.explorers.LinearDecayEpsilonGreedy(
-        0.5, 0.1, 5000, random_action_func=env.random_action_sample)
+        1, 0.01, 6000, random_action_func=GraspEnv.random_action_sample_fn(config))
     optimizer = torch.optim.Adam(q_func.parameters(), eps=1e-4, weight_decay=1e-4)
-    replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6, betasteps=5000)
+    replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10000, betasteps=6000)
 
     gpu = 0
 
@@ -129,22 +148,24 @@ if __name__ == '__main__':
         explorer,
         replay_start_size=1 if args.test_run else 100,
         update_interval=1,
-        target_update_interval=1,
-        minibatch_size=1 if args.test_run else 32,
+        target_update_interval=100,
+        minibatch_size=1 if args.test_run else 16,
         gpu=gpu,
         phi=phi,
+        max_grad_norm=10,
     )
 
     logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='')
 
-    pfrl.experiments.train_agent_with_evaluation(
+    pfrl.experiments.train_agent_batch_with_evaluation(
         agent,
-        env,
-        steps=50000,
+        env=env,
+        steps=60000,
+        log_interval=10,
         eval_n_steps=None,
-        eval_n_episodes=20,
-        train_max_episode_len=200,
-        eval_interval=500,
+        eval_n_episodes=10,
+        max_episode_len=10,
+        eval_interval=100,
         outdir=args.outdir,
         save_best_so_far_agent=True,
         # eval_env=eval_env,

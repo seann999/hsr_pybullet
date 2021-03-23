@@ -371,11 +371,11 @@ class HSREnv:
             gripper_state = self.c_direct.getLinkState(self.robot_direct.id, 34, computeForwardKinematics=1)
 
             pos_err = np.linalg.norm(np.array(gripper_state[4]) - pos)
-            orn_err = (R.from_quat(gripper_state[1]) * R.from_quat(orn).inv()).as_euler('xyz')
+            orn_err = 1 - np.dot(gripper_state[1], orn)**2.0
 
             # print(i, pos_err, orn_err)
 
-            if pos_err < 0.01 and np.max(np.abs(orn_err)) < 0.01:
+            if pos_err < 0.01 and orn_err < 0.01:
                 success = True
                 break
             else:
@@ -432,7 +432,6 @@ class HSREnv:
             # input('close?')
             self.close_gripper()
             # input('ok?')
-            self.move_ee(pos + np.array([0, 0, 0.3]), down)
 
             return True
 
@@ -471,7 +470,7 @@ class GraspEnv:
         self.hmap, self.obs_config, self.segmap = None, None, None
 
         self.dummy = np.zeros((3, self.res, self.res), dtype=np.float32)
-        self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 0.3]])
+        self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 1]])
 
         self.spawn_mode = 'box'# config['spawn_mode']
         self.spawn_box = [[-1.5, -1, 0.4], [-0.5, 1.5, 0.6]]# [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
@@ -576,15 +575,18 @@ class GraspEnv:
 
         return ids
 
-    def random_action_sample(self):
-        primitive = np.random.randint(int(self.config['action_grasp']) + int(self.config['action_look']))
-        if primitive == 0:
-            return np.random.randint(self.num_rots * self.res * self.res)
-        elif primitive == 1:
-            offset = self.num_rots * self.res * self.res
-            return offset + np.random.randint(self.res * self.res)
+    def random_action_sample_fn(config):
+        def fn():
+            primitive = np.random.randint(int(config['action_grasp']) + int(config['action_look']))
+            if primitive == 0:
+                return np.random.randint(config['rots'] * config['res'] * config['res'])
+            elif primitive == 1:
+                offset = config['rots'] * config['res'] * config['res']
+                return offset + np.random.randint(config['res'] * config['res'])
 
-        raise Exception('invalid primitive')
+            raise Exception('invalid primitive')
+
+        return fn
 
     def reset(self):
         for id in self.obj_ids:
@@ -656,6 +658,9 @@ class GraspEnv:
 
         return hmap
 
+    def set_seed(self, idx):
+        np.random.seed(idx)
+
     def step(self, action):
         action_type = None
         max_grasp_idx = self.num_rots * self.res * self.res
@@ -708,7 +713,7 @@ class GraspEnv:
 
             if self.env.grasp_primitive([x, y, z], angle, frame=self.obs_config['base_frame'], stop_at_contact=False):
                 self.env.holding_pose()
-
+                
                 for _ in range(240):
                     self.env.stepSimulation()
 
@@ -754,7 +759,7 @@ class GraspEnv:
         else:
             raise Exception('no valid action')
 
-        if self.furniture_collision or self.object_collision:
+        if self.furniture_collision:# or self.object_collision:
             reward = -0.25
             done = True
 

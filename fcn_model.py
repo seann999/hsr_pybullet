@@ -3,6 +3,7 @@ from torch import nn
 import numpy as np
 import torch
 import torch.nn.functional as F
+import time
 
 
 class FCN(nn.Module):
@@ -15,7 +16,7 @@ class FCN(nn.Module):
         modules = list(models.resnet18().children())[:-5]
         self.backbone = nn.Sequential(*modules)
         self.end = nn.Sequential(
-            nn.Conv2d(64, 64, 1, 1),
+            nn.Conv2d(64 + 2, 64, 1, 1),
             nn.ReLU(),
             nn.BatchNorm2d(64),
             nn.UpsamplingBilinear2d(scale_factor=2),
@@ -26,13 +27,21 @@ class FCN(nn.Module):
             nn.Conv2d(64, 1, 1, 1),
         )
 
-    def cat_meshgrid(self, input):
-        x = torch.abs(torch.linspace(-0.5, 0.5, steps=input.shape[-2]))
-        x = torch.tensor(x)  # side
-        y = torch.tensor(torch.linspace(0, 1, steps=input.shape[-1]))  # forward
+    def cat_grid(self, input, affine_grid=None):
+        x = torch.abs(torch.linspace(-0.5, 0.5, steps=input.shape[-2])).cuda() # side
+        y = torch.tensor(torch.linspace(0, 1, steps=input.shape[-1])).cuda()  # forward
         grid_x, grid_y = torch.meshgrid(x, y)
+        grid_x = grid_x.unsqueeze(0).unsqueeze(0)
+        grid_y = grid_y.unsqueeze(0).unsqueeze(0)
+        grid_x = grid_x.repeat(len(input), 1, 1, 1)
+        grid_y = grid_y.repeat(len(input), 1, 1, 1)
+        grid = torch.cat([grid_x, grid_y], 1)
 
-        x = torch.cat([input, grid_x, grid_y], 1)
+        if affine_grid is not None:
+            flow_grid = F.affine_grid(affine_grid, input.size())
+            grid = F.grid_sample(grid, flow_grid, mode='nearest')
+
+        x = torch.cat([input, grid], 1)
 
         return x
 
@@ -43,11 +52,12 @@ class FCN(nn.Module):
         # assert x.shape[-2:] == y.shape[-2:], 'input =/= output shape {} {}'.format(x.shape, y.shape)
         output_prob = []
 
-        x = x[:, 0:1]
-        x = self.cat_meshgrid(x)
+        # x = x[:, 0:1]
+        # x = self.cat_meshgrid(x)
 
         if self.num_rotations == 1:
-            return self.end(self.backbone(x))
+            out = self.end(self.cat_grid(self.backbone(x)))
+            return out
         else:
             for rotate_idx in range(self.num_rotations):
                 rotate_theta = np.radians(rotate_idx * (360 / self.num_rotations))
@@ -63,10 +73,11 @@ class FCN(nn.Module):
                 #print(affine_mat_before.is_cuda, x.is_cuda)
 
                 if self.use_cuda:
-                    flow_grid_before = F.affine_grid(affine_mat_before.cuda(),
-                                                     x.size())
+                    affine_mat_before = affine_mat_before.cuda()
+                    flow_grid_before = F.affine_grid(affine_mat_before, x.size())
                 else:
-                    flow_grid_before = F.affine_grid(affine_mat_before.detach(), x.size())
+                    affine_mat_before = affine_mat_before.detach()
+                    flow_grid_before = F.affine_grid(affine_mat_before, x.size())
 
                 # Rotate images clockwise
                 if self.use_cuda:
@@ -75,7 +86,7 @@ class FCN(nn.Module):
                     rotate_depth = F.grid_sample(x.detach(), flow_grid_before, mode='nearest')
 
                 # Compute intermediate features
-                output_map = self.end(self.backbone(rotate_depth))
+                output_map = self.end(self.cat_grid(self.backbone(rotate_depth), affine_mat_before))
 
                 # Compute sample grid for rotation AFTER branches
                 affine_mat_after = np.asarray(
