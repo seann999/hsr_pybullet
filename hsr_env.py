@@ -186,7 +186,7 @@ class HSREnv:
         self.c_gui.changeVisualShape(self.marker_id, -1, rgbaColor=(0, 1, 0, 1))
         self.c_gui.resetBasePositionAndOrientation(self.marker_id, v + np.array([0, 0, 0.1]), [0, 0, 0, 1])
 
-        for _ in range(100):
+        for _ in range(1000):
             curr_state = self.robot_direct.get_link_state_by_name('head_rgbd_sensor_gazebo_frame_joint')
             head_pos = np.array(curr_state.world_link_frame_position)
             head_orn = np.array(curr_state.world_link_frame_orientation)
