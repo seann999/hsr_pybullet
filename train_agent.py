@@ -102,7 +102,7 @@ def make_env(idx, config):
 def make_batch_env(config):
     vec_env = pfrl.envs.MultiprocessVectorEnv([
         functools.partial(make_env, idx, config)
-        for idx, env in enumerate(range(8))
+        for idx, env in enumerate(range(12))
     ])
     
     return vec_env
@@ -146,9 +146,9 @@ if __name__ == '__main__':
         replay_buffer,
         gamma,
         explorer,
-        replay_start_size=1 if args.test_run else 100,
+        replay_start_size=1 if args.test_run else 1000,
         update_interval=1,
-        target_update_interval=100,
+        target_update_interval=1000,
         minibatch_size=1 if args.test_run else 16,
         gpu=gpu,
         phi=phi,

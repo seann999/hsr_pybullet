@@ -460,9 +460,21 @@ class GraspEnv:
         self.res = 224
         self.px_size = 3.0 / self.res
         self.num_rots = 16
+        self.stats = {
+            'object_collisions': 0,
+            'furniture_collisions': 0,
+            'episodes': 0,
+            'grasp_success_collision': 0,
+            'grasp_success_safe': 0,
+            'grasp_failure_collision': 0,
+            'grasp_failure_safe': 0,
+            'grasp_attempts': 0,
+            'oob_actions': 0,
+        }
 
         self.observation_space = Box(-1, 1, (self.res, self.res))
         self.config = config
+        self.seed = None
 
         n_actions = (int(config['action_grasp']) * self.num_rots + int(config['action_look'])) * self.res * self.res
         self.action_space = Discrete(n_actions)
@@ -593,7 +605,7 @@ class GraspEnv:
             self.env.c_gui.resetBasePositionAndOrientation(id, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
             self.env.c_gui.changeDynamics(id, -1, mass=0)
 
-        num_objs = np.random.randint(5, 30)
+        num_objs = np.random.randint(1, 30)
         selected = np.random.permutation(self.obj_ids)[:num_objs]
 
         self.env.reset_pose()
@@ -659,6 +671,7 @@ class GraspEnv:
         return hmap
 
     def set_seed(self, idx):
+        self.seed = idx
         np.random.seed(idx)
 
     def step(self, action):
@@ -739,8 +752,22 @@ class GraspEnv:
                                                                    (0, 0, 0, 1))
 
                 reward = 1 if grasp_success else -0.1
+
+                if grasp_success:
+                    if self.object_collision:
+                        self.stats['grasp_success_collision'] += 1
+                    else:
+                        self.stats['grasp_success_safe'] += 1
+                else:
+                    if self.object_collision:
+                        self.stats['grasp_failure_collision'] += 1
+                    else:
+                        self.stats['grasp_failure_safe'] += 1
+
+                self.stats['grasp_attempts'] += 1
                 # done |= grasp_success
             else:
+                self.stats['oob_actions'] += 1
                 reward = -0.25
         elif action_type == 'look':
             surface_height = 0
@@ -759,9 +786,20 @@ class GraspEnv:
         else:
             raise Exception('no valid action')
 
-        if self.furniture_collision:# or self.object_collision:
+        self.stats['furniture_collisions'] += int(self.furniture_collision)
+        self.stats['object_collisions'] += int(self.object_collision)
+
+        if self.furniture_collision:
             reward = -0.25
             done = True
+        elif self.object_collision:
+            reward = min(reward * 0.1, reward)
+            # done = True
+
+        if done:
+            self.stats['episodes'] += 1
+
+            print('seed:', self.seed, self.stats)
 
         hmap = self.update_obs()
 
