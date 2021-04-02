@@ -5,16 +5,17 @@ import cv2
 import numpy as np
 import os
 import torch
-from torch import nn
+
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split
 from torchvision import transforms
-import torchvision.models as models
+
 import matplotlib.pyplot as plt
 import json
 import env_utils as eu
 import ravens.utils.utils as ru
 import matplotlib.pyplot as plt
+from fcn_model import FCN
 
 BOUNDS = np.array([[0, 3], [-1.5, 1.5], [-0.05, 0.3]])
 
@@ -75,28 +76,6 @@ class SegData:
         hmap = np.transpose(hmap, (2, 0, 1))
 
         return hmap, gtmap
-
-
-class FCN(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-        modules = list(models.resnet18().children())[:-5]
-        self.backbone = nn.Sequential(*modules)
-        self.end = nn.Sequential(
-            nn.Conv2d(64, 64, 1, 1),
-            nn.ReLU(),
-            nn.BatchNorm2d(64),
-            nn.UpsamplingBilinear2d(scale_factor=2),
-            nn.Conv2d(64, 64, 1, 1),
-            nn.ReLU(),
-            nn.BatchNorm2d(64),
-            nn.UpsamplingBilinear2d(scale_factor=2),
-            nn.Conv2d(64, 1, 1, 1),
-        )
-
-    def forward(self, x):
-        return self.end(self.backbone(x))
 
 
 def create_fig(x, y_hat, y):
