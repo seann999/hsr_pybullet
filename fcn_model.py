@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import time
 
 from self_attention_cv import ViT
-
+import resnet
 
 class FCN(nn.Module):
     def __init__(self, num_rotations=16):
@@ -15,20 +15,22 @@ class FCN(nn.Module):
         self.num_rotations = num_rotations
         self.use_cuda = True
 
-        modules = list(models.resnet18().children())[:-5]
-        self.backbone = nn.Sequential(*modules)
+        #modules = list(models.resnet18().children())[:-5]
+        backbone = resnet.resnet18(num_input_channels=3, num_classes=1)
+        backbone.cuda()
+        self.backbone = backbone.features
         self.end = nn.Sequential(
-            nn.Conv2d(66, 64, 1, 1),
+            nn.Conv2d(514, 128, 1, 1),
             nn.ReLU(),
-            nn.BatchNorm2d(64),
+            #nn.BatchNorm2d(64),
             nn.UpsamplingBilinear2d(scale_factor=2),
-            nn.Conv2d(64, 64, 1, 1),
+            nn.Conv2d(128, 32, 1, 1),
             nn.ReLU(),
-            nn.BatchNorm2d(64),
+            #nn.BatchNorm2d(64),
             nn.UpsamplingBilinear2d(scale_factor=2),
-            nn.Conv2d(64, 1, 1, 1),
+            nn.Conv2d(32, 1, 1, 1),
         )
-        self.vit = ViT(img_dim=56, in_channels=66, patch_dim=4,
+        self.vit = ViT(img_dim=56, in_channels=514, patch_dim=4,
                 #dim=64,
                 blocks=2,
                 #heads=1,
@@ -36,15 +38,15 @@ class FCN(nn.Module):
                 classification=False)
         #self.vit_fc = nn.Linear(512, 64)
         self.vit_upsample = nn.Sequential(
-            nn.Conv2d(512, 64, 1, 1),
+            nn.Conv2d(512, 512, 1, 1),
             nn.ReLU(),
-            nn.BatchNorm2d(64),
-            nn.UpsamplingBilinear2d(scale_factor=2),
-            nn.Conv2d(64, 64, 1, 1),
-            nn.ReLU(),
-            nn.BatchNorm2d(64),
-            nn.UpsamplingBilinear2d(scale_factor=2),
-            nn.Conv2d(64, 66, 1, 1),
+            #nn.BatchNorm2d(64),
+            nn.UpsamplingBilinear2d(scale_factor=4),
+            nn.Conv2d(512, 514, 1, 1),
+            #nn.ReLU(),
+            #nn.BatchNorm2d(64),
+            #nn.UpsamplingBilinear2d(scale_factor=2),
+            #nn.Conv2d(512, 514, 1, 1),
         )
 
     def cat_grid(self, input, affine_grid=None):
@@ -86,7 +88,7 @@ class FCN(nn.Module):
         # x = self.cat_meshgrid(x)
 
         if self.num_rotations == 1:
-            out = self.end(self.self_attention(self.cat_grid(self.backbone(x))))
+            out = self.end(self.self_attention(self.backbone(x)))
             return out
         else:
             for rotate_idx in range(self.num_rotations):

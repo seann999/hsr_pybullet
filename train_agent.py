@@ -135,12 +135,13 @@ if __name__ == '__main__':
 
     explorer = pfrl.explorers.LinearDecayEpsilonGreedy(
         1, 0.01, 6000, random_action_func=GraspEnv.random_action_sample_fn(config))
-    optimizer = torch.optim.Adam(q_func.parameters(), eps=1e-4, weight_decay=1e-4)
+    #optimizer = torch.optim.Adam(q_func.parameters(), eps=1e-4, weight_decay=1e-4)
+    optimizer = torch.optim.SGD(q_func.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0001)
     replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10000, betasteps=6000)
 
     gpu = 0
 
-    agent = pfrl.agents.DQN(
+    agent = pfrl.agents.DoubleDQN(
         q_func,
         optimizer,
         replay_buffer,
@@ -149,11 +150,13 @@ if __name__ == '__main__':
         replay_start_size=1 if args.test_run else 1000,
         update_interval=1,
         target_update_interval=1000,
-        minibatch_size=1 if args.test_run else 16,
+        minibatch_size=1 if args.test_run else 8,
         gpu=gpu,
         phi=phi,
         max_grad_norm=10,
     )
+
+    #agent.load('result/test07-room4-1000/best')
 
     logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='')
 
