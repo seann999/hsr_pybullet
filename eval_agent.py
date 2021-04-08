@@ -66,6 +66,17 @@ if __name__ == '__main__':
     max_episode_len = 100
     n_episodes = 100
 
+    config = {
+        'depth_noise': True,
+        'rot_noise': True,
+        'action_grasp': True,
+        'action_look': True,
+        'spawn_mode': 'circle',
+        'res': 224,
+        'rots': 16,
+    }
+    random_fn = GraspEnv.random_action_sample_fn(config)
+
     def do_trials():
         for i in range(1, n_episodes + 1):
             obs = env.reset()
@@ -79,7 +90,7 @@ if __name__ == '__main__':
                 # Uncomment to watch the behavior in a GUI window
                 # env.render()
                 if agent_type == 'random':
-                    action = env.random_action_sample()
+                    action = random_fn()
                 else:
                     action = agent.act(obs)
 

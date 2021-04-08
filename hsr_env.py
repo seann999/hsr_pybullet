@@ -111,6 +111,8 @@ class HSREnv:
         self.marker_id = c_gui.createMultiBody(basePosition=[0, 0, 0], baseCollisionShapeIndex=-1,
                                                baseVisualShapeIndex=vs_id)
 
+        self.break_criteria = lambda: False
+
         # print(self.robot.get_joint_infos())
 
     def get_robot_info(self):
@@ -304,6 +306,9 @@ class HSREnv:
         prev = self.robot.get_states()['joint_position']
 
         for t in range(steps):
+            if self.break_criteria():
+                break
+
             self.c_gui.stepSimulation()
 
             curr = self.robot.get_states()['joint_position']
@@ -410,7 +415,7 @@ class HSREnv:
         self.set_joint_position(q[:-4], True)
 
         steps = 240 * t
-        self.steps(steps, stop_at_contact=stop_at_contact)
+        return self.steps(steps, stop_at_contact=stop_at_contact)
 
     def grasp_primitive(self, pos, angle=0, frame=None, stop_at_contact=False):
         if frame is None:
@@ -511,7 +516,11 @@ class GraspEnv:
 
             return wrapper
 
+        def break_criteria():
+            return self.furniture_collision
+
         self.env.c_gui.stepSimulation = wrapper(self.env.c_gui.stepSimulation)
+        self.env.break_criteria = break_criteria
 
     def generate_room(self):
         ids = []
@@ -726,30 +735,33 @@ class GraspEnv:
 
             if self.env.grasp_primitive([x, y, z], angle, frame=self.obs_config['base_frame'], stop_at_contact=False):
                 self.env.holding_pose()
-                
-                for _ in range(240):
-                    self.env.stepSimulation()
 
-                grasp_success = False
-                obj = None
+                if self.env.break_criteria():
+                    grasp_success = False
+                else:
+                    for _ in range(240):
+                        self.env.stepSimulation()
 
-                points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=40)
-                for c in points:
-                    if c[2] in self.obj_ids:
-                        grasp_success = True
-                        obj = c[2]
-                        break
-                if not grasp_success:
-                    points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=46)
+                    grasp_success = False
+                    obj = None
+
+                    points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=40)
                     for c in points:
                         if c[2] in self.obj_ids:
                             grasp_success = True
                             obj = c[2]
                             break
+                    if not grasp_success:
+                        points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=46)
+                        for c in points:
+                            if c[2] in self.obj_ids:
+                                grasp_success = True
+                                obj = c[2]
+                                break
 
-                if grasp_success:
-                    self.env.c_gui.resetBasePositionAndOrientation(obj, (-100, np.random.uniform(-100, 100), -100),
-                                                                   (0, 0, 0, 1))
+                    if grasp_success:
+                        self.env.c_gui.resetBasePositionAndOrientation(obj, (-100, np.random.uniform(-100, 100), -100),
+                                                                       (0, 0, 0, 1))
 
                 reward = 1 if grasp_success else -0.1
 
