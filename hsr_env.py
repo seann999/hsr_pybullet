@@ -230,6 +230,10 @@ class HSREnv:
         if sim:
             self.set_joint_position(curr_q, True)
             self.steps()
+
+            # print('target', v)
+            # print('error;', error_angle)
+            # input('ok?')
         else:
             self.reset_joints(curr_q, True)
 
