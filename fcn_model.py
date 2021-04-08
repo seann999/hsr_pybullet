@@ -15,35 +15,37 @@ class FCN(nn.Module):
         self.num_rotations = num_rotations
         self.use_cuda = True
 
-        #modules = list(models.resnet18().children())[:-5]
-        backbone = resnet.resnet18(num_input_channels=3, num_classes=1)
-        backbone.cuda()
-        self.backbone = backbone.features
+        modules = list(models.resnet18().children())[:-5]
+        self.backbone = nn.Sequential(*modules)
+        #backbone = resnet.resnet18(num_input_channels=3, num_classes=1)
+        #backbone.cuda()
+        #self.backbone = backbone.features
         self.end = nn.Sequential(
-            nn.Conv2d(514, 128, 1, 1),
+            nn.Conv2d(64 if num_rotations==1 else 64, 64, 1, 1),
+            nn.BatchNorm2d(64),
             nn.ReLU(),
-            #nn.BatchNorm2d(64),
             nn.UpsamplingBilinear2d(scale_factor=2),
-            nn.Conv2d(128, 32, 1, 1),
+            nn.Conv2d(64, 32, 1, 1),
+            nn.BatchNorm2d(32),
             nn.ReLU(),
-            #nn.BatchNorm2d(64),
             nn.UpsamplingBilinear2d(scale_factor=2),
             nn.Conv2d(32, 1, 1, 1),
         )
-        self.vit = ViT(img_dim=56, in_channels=514, patch_dim=4,
+        self.vit = ViT(img_dim=224, in_channels=3, patch_dim=16,
                 #dim=64,
-                blocks=2,
+                #blocks=2,
                 #heads=1,
                 #dim_linear_block=64,
                 classification=False)
         #self.vit_fc = nn.Linear(512, 64)
         self.vit_upsample = nn.Sequential(
-            nn.Conv2d(512, 512, 1, 1),
+            nn.Conv2d(512, 128, 1, 1),
+            nn.BatchNorm2d(128),
             nn.ReLU(),
-            #nn.BatchNorm2d(64),
             nn.UpsamplingBilinear2d(scale_factor=4),
-            nn.Conv2d(512, 514, 1, 1),
-            #nn.ReLU(),
+            nn.Conv2d(128, 64, 1, 1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
             #nn.BatchNorm2d(64),
             #nn.UpsamplingBilinear2d(scale_factor=2),
             #nn.Conv2d(512, 514, 1, 1),
@@ -72,8 +74,8 @@ class FCN(nn.Module):
         #z = self.vit_fc(z)
         z = z.view(-1, 14, 14, 512)
         z = z.permute(0, 3, 1, 2)
-        z = self.vit_upsample(z)
-        x = F.relu(x + z)
+        x = self.vit_upsample(z)
+        #x = F.relu(z)#x + z)
 
         return x
 
@@ -87,8 +89,10 @@ class FCN(nn.Module):
         # x = x[:, 0:1]
         # x = self.cat_meshgrid(x)
 
+        vit_h = self.self_attention(x)
+
         if self.num_rotations == 1:
-            out = self.end(self.self_attention(self.backbone(x)))
+            out = self.end(vit_h)
             return out
         else:
             for rotate_idx in range(self.num_rotations):
@@ -107,6 +111,7 @@ class FCN(nn.Module):
                 if self.use_cuda:
                     affine_mat_before = affine_mat_before.cuda()
                     flow_grid_before = F.affine_grid(affine_mat_before, x.size())
+                    flow_grid_vit = F.affine_grid(affine_mat_before, vit_h.size())
                 else:
                     affine_mat_before = affine_mat_before.detach()
                     flow_grid_before = F.affine_grid(affine_mat_before, x.size())
@@ -114,11 +119,13 @@ class FCN(nn.Module):
                 # Rotate images clockwise
                 if self.use_cuda:
                     rotate_depth = F.grid_sample(x.detach().cuda(), flow_grid_before, mode='nearest')
+                    rotate_vit_h = F.grid_sample(vit_h, flow_grid_vit, mode='nearest')
                 else:
                     rotate_depth = F.grid_sample(x.detach(), flow_grid_before, mode='nearest')
 
                 # Compute intermediate features
-                output_map = self.end(self.self_attention(self.cat_grid(self.backbone(rotate_depth), affine_mat_before)))
+                #output_map = self.end(torch.cat([rotate_vit_h, self.backbone(rotate_depth)], 1))
+                output_map = self.end(self.backbone(rotate_depth))
 
                 # Compute sample grid for rotation AFTER branches
                 affine_mat_after = np.asarray(
