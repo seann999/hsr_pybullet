@@ -79,10 +79,13 @@ if __name__ == '__main__':
 
     def do_trials():
         for i in range(1, n_episodes + 1):
+            print('resetting')
             obs = env.reset()
+            print('reset done')
             R = 0  # return (sum of rewards)
             t = 0  # time step
             while True:
+                print('>>>>')
                 if args.show_hmap:
                     cv2.imshow('hmap', np.uint8(obs[0] / obs[0].max() * 255))
                     cv2.waitKey(1)
@@ -94,7 +97,9 @@ if __name__ == '__main__':
                 else:
                     action = agent.act(obs)
 
+                print('acting')
                 obs, reward, done, _ = env.step(action)
+                print('acted')
                 R += reward
                 t += 1
                 reset = t == max_episode_len

@@ -1,3 +1,4 @@
+import time
 import pybullet as p
 import pybullet_utils.bullet_client as bc
 import pybullet_data
@@ -306,7 +307,7 @@ class HSREnv:
         self.set_joint_position(q, True)
         self.steps()
 
-    def steps(self, steps=240 * 30, finger_steps=240, stop_at_contact=False):
+    def steps(self, steps=240 * 10, finger_steps=240, stop_at_contact=False):
         prev = self.robot.get_states()['joint_position']
 
         for t in range(steps):
@@ -317,7 +318,7 @@ class HSREnv:
 
             curr = self.robot.get_states()['joint_position']
 
-            eq = np.abs(curr - prev) < 1e-4
+            eq = np.abs(curr - prev) < 1e-3
             timeout = [t >= steps] * len(eq[:-4]) + [t >= finger_steps] * 4
 
             if stop_at_contact:
@@ -340,6 +341,7 @@ class HSREnv:
 
             if np.all(np.logical_or(eq, timeout)):
                 # print('breaking at', t, 'steps')
+                # print(eq, timeout)
                 break
 
             prev = curr
@@ -369,11 +371,11 @@ class HSREnv:
 
         success = False
 
-        for i in range(1000):
+        for i in range(1):
             q = self.c_direct.calculateInverseKinematics(self.robot_direct.id, 34, pos, orn, lowerLimits=lowers,
                                                          upperLimits=uppers,
                                                          jointRanges=self.ranges, restPoses=orig_q,
-                                                         maxNumIterations=10000, residualThreshold=1e-5)
+                                                         maxNumIterations=1000, residualThreshold=1e-4)
             q = list(q)
             self.reset_joints(q, False)
 
@@ -395,7 +397,7 @@ class HSREnv:
                 self.reset_joints(sample, False)
 
         if not success:
-            print('FAILED TO FIND IK')
+            print('FAILED TO FIND ACCURATE IK')
 
         # q[-1] = DISTAL_OPEN if open else DISTAL_CLOSE
         # q[-2] = PROXIMAL_OPEN if open else PROXIMAL_CLOSE
@@ -435,11 +437,23 @@ class HSREnv:
         down = R.from_matrix(mat[:3, :3]).as_quat()
 
         if np.abs(pos[0]) < BOUNDS and np.abs(pos[1]) < BOUNDS:
+            # print('move ee')
             self.move_ee(pos + np.array([0, 0, 0.3]), down)
+
+            if self.break_criteria():
+                return True
+            # print('open')
             self.open_gripper()
+            if self.break_criteria():
+                return True
+            # print('move ee')
             self.move_ee(pos, down, stop_at_contact=stop_at_contact)
+            if self.break_criteria():
+                return True
             # input('close?')
+            # print('close')
             self.close_gripper()
+            # print('done')
             # input('ok?')
 
             return True
@@ -614,6 +628,8 @@ class GraspEnv:
         return fn
 
     def reset(self):
+        self.ep_start_time = time.time()
+
         for id in self.obj_ids:
             self.env.c_gui.resetBasePositionAndOrientation(id, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
             self.env.c_gui.changeDynamics(id, -1, mass=0)
@@ -621,7 +637,9 @@ class GraspEnv:
         num_objs = np.random.randint(1, 30)
         selected = np.random.permutation(self.obj_ids)[:num_objs]
 
+        # print('reset pose')
         self.env.reset_pose()
+        # print('reset done')
 
         for i, id in enumerate(selected):
             if self.spawn_mode == 'box':
@@ -637,11 +655,33 @@ class GraspEnv:
             pos = (x, y, z)
             # pos = self.pos[i]
 
-            self.env.c_gui.resetBasePositionAndOrientation(id, pos, R.random().as_quat())
+            for t in range(10):
+                self.env.c_gui.resetBasePositionAndOrientation(id, pos, R.random().as_quat())
+                valid = True
+
+                for prev in selected[:i]:
+                    if len(self.env.c_gui.getClosestPoints(id, prev, 0)) > 0:
+                        valid = False
+                        break
+
+                if valid:
+                    break
+
             self.env.c_gui.changeDynamics(id, -1, mass=0.1)
 
-        for _ in range(240 * 5):
+        # print('settle')
+        x = [self.env.c_gui.getBasePositionAndOrientation(i)[0] for i in selected]
+        for t in range(240 * 5):
             self.env.c_gui.stepSimulation()
+            y = [self.env.c_gui.getBasePositionAndOrientation(i)[0] for i in selected]
+
+            diff = np.abs(np.array(x) - np.array(y))
+            if t > 10 and np.all(diff < 1e-3):
+                # print('breaking at', t)
+                break
+
+            x = y
+        # print('settle done')
 
         for _ in range(10):
             self.env.move_joints({
@@ -815,7 +855,7 @@ class GraspEnv:
         if done:
             self.stats['episodes'] += 1
 
-            print('seed:', self.seed, self.stats)
+            print('seed:', self.seed, self.stats, time.time() - self.ep_start_time)
 
         hmap = self.update_obs()
 
