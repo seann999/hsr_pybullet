@@ -100,7 +100,7 @@ def spawn_ycb(client, ids=None, area=[[0.5, 3.0], [-1.5, 1.5], [0.4, 0.6]]):
     for i in ids:
         x = folders[i]
 
-        path = 'ycb/{}/google_16k/textured.obj'.format(x)
+        path = 'ycb/{}/google_16k/nontextured.stl'.format(x)
 
         name_in = path
         collision_path = 'ycb/{}/google_16k/collision.obj'.format(x)

@@ -371,7 +371,7 @@ class HSREnv:
 
         success = False
 
-        for i in range(1):
+        for i in range(10):
             q = self.c_direct.calculateInverseKinematics(self.robot_direct.id, 34, pos, orn, lowerLimits=lowers,
                                                          upperLimits=uppers,
                                                          jointRanges=self.ranges, restPoses=orig_q,
@@ -614,16 +614,20 @@ class GraspEnv:
 
         return ids
 
-    def random_action_sample_fn(config):
-        def fn():
-            primitive = np.random.randint(int(config['action_grasp']) + int(config['action_look']))
-            if primitive == 0:
-                return np.random.randint(config['rots'] * config['res'] * config['res'])
-            elif primitive == 1:
-                offset = config['rots'] * config['res'] * config['res']
-                return offset + np.random.randint(config['res'] * config['res'])
+    def random_action_sample_fn(config, uniform=False):
+        if uniform:
+            def fn():
+                return np.random.randint((config['rots'] + 1) * config['res'] * config['res'])
+        else:
+            def fn():
+                primitive = np.random.randint(int(config['action_grasp']) + int(config['action_look']))
+                if primitive == 0:
+                    return np.random.randint(config['rots'] * config['res'] * config['res'])
+                elif primitive == 1:
+                    offset = config['rots'] * config['res'] * config['res']
+                    return offset + np.random.randint(config['res'] * config['res'])
 
-            raise Exception('invalid primitive')
+                raise Exception('invalid primitive')
 
         return fn
 
