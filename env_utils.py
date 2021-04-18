@@ -90,55 +90,102 @@ def get_heightmaps(client, configs, bounds=None, return_seg=False, px_size=0.003
     return heightmaps, colormaps, segmaps#, rgbs, depths, segs
 
 
-def spawn_ycb(client, ids=None, area=[[0.5, 3.0], [-1.5, 1.5], [0.4, 0.6]]):
-    folders = sorted([x for x in os.listdir('ycb') if os.path.isdir('ycb/{}'.format(x))])
+def load_obj(client, mesh_path, collision_path, area=[[0.5, 3.0], [-1.5, 1.5], [0.4, 0.6]]):
+    name_log = 'log.txt'
+
+    mesh = trimesh.load(mesh_path, force='mesh')
+
+    if len(mesh.split()) > 1:
+        return False, None
+
+    success = mesh.fill_holes()
+
+    if success:
+        new_path = mesh_path[:-4] + '_watertight.obj'
+        mesh.export(new_path)
+        mesh_path = new_path
+    else:
+        print('mesh is not watertight!')
+        return False, None
+
+    if not os.path.exists(collision_path):
+        p.vhacd(mesh_path, collision_path, name_log)
+
+    max_side = max(mesh.extents)
+    scale = np.random.uniform(0.06, 0.35) / max_side
+
+    matrix = np.eye(4)
+    matrix[:2, :2] *= scale
+    mesh.apply_transform(matrix)
+
+    scale = [scale, scale, scale]
+
+    viz_shape_id = client.createVisualShape(
+        shapeType=p.GEOM_MESH,
+        fileName=mesh_path, meshScale=scale)
+
+    # print(mesh.center_mass)
+    # print(mesh.mass)
+    # print(success, mesh.is_watertight)
+    # print(mesh.moment_inertia)
+
+    col_shape_id = client.createCollisionShape(
+        shapeType=p.GEOM_MESH,
+        fileName=collision_path, meshScale=scale,
+    )
+
+    print('CENTER', mesh.centroid)
+
+    obj_id = client.createMultiBody(
+        baseMass=0.1,
+        basePosition=(np.random.uniform(area[0][0], area[0][1]),
+                      np.random.uniform(area[1][0], area[1][1]),
+                      np.random.uniform(area[2][0], area[2][1])),
+        baseCollisionShapeIndex=col_shape_id,
+        baseVisualShapeIndex=viz_shape_id,
+        baseOrientation=R.random().as_quat(),
+        baseInertialFramePosition=np.array(mesh.centroid) * scale,
+    )
+
+    return True, obj_id
+
+
+def spawn_ycb(client, ids=None, ycb=False):
+    if ycb:
+        folders = sorted([x for x in os.listdir('ycb') if os.path.isdir('ycb/{}'.format(x))])
+    else:
+        paths = sorted([x for x in os.listdir('/home/sean/data/shapenetsem/models') if x.endswith('.obj') and 'collision' not in x])
     obj_ids = []
 
     if ids is None:
         ids = np.random.randint(0, len(folders), 10)
 
+    index = 0
     for i in ids:
-        x = folders[i]
+        #x = folders[i]
 
-        path = 'ycb/{}/google_16k/textured.obj'.format(x)
+        while True:
+            x = paths[index]#random.choice(paths)
 
-        name_in = path
-        collision_path = 'ycb/{}/google_16k/collision.obj'.format(x)
-        name_log = 'log.txt'
+            #path = 'ycb/{}/google_16k/textured.obj'.format(x)
+            #collision_path = 'ycb/{}/google_16k/collision.obj'.format(x)
+            path = '/home/sean/data/shapenetsem/models/{}'.format(x)
+            collision_path = path[:-4] + '_collision.obj'
 
-        if not os.path.exists(collision_path):
-            p.vhacd(name_in, collision_path, name_log)
+            success, obj_id = load_obj(client, path, collision_path)
 
-        viz_shape_id = client.createVisualShape(
-            shapeType=p.GEOM_MESH,
-            fileName=path, meshScale=1)
+            if not success:
+                print('failed load')
+                index += 1
+                continue
 
-        mesh = trimesh.load_mesh(path)
-        success = mesh.fill_holes()
-        # print(mesh.center_mass)
-        # print(mesh.mass)
-        # print(success, mesh.is_watertight)
-        # print(mesh.moment_inertia)
+            # client.changeVisualShape(obj_id, -1, textureUniqueId=-1)
+            client.changeDynamics(obj_id, -1, lateralFriction=0.5)
 
-        col_shape_id = client.createCollisionShape(
-            shapeType=p.GEOM_MESH,
-            fileName=collision_path, meshScale=1,
-        )
+            obj_ids.append(obj_id)
+            index += 1
 
-        obj_id = client.createMultiBody(
-            baseMass=0.1,
-            basePosition=(np.random.uniform(area[0][0], area[0][1]),
-                          np.random.uniform(area[1][0], area[1][1]),
-                          np.random.uniform(area[2][0], area[2][1])),
-            baseCollisionShapeIndex=col_shape_id,
-            baseVisualShapeIndex=viz_shape_id,
-            baseOrientation=R.random().as_quat(),
-            baseInertialFramePosition=mesh.center_mass,
-        )
-
-        client.changeDynamics(obj_id, -1, lateralFriction=0.5)
-
-        obj_ids.append(obj_id)
+            break
 
     for _ in range(240 * 5):
         client.stepSimulation()

@@ -473,6 +473,7 @@ DEFAULT_CONFIG = {
 class GraspEnv:
     def __init__(self, check_visibility=False, n_objects=78, config=DEFAULT_CONFIG, setup_room=True, **kwargs):
         self.env = HSREnv(**kwargs)
+
         self.obj_ids = eu.spawn_ycb(self.env.c_gui, ids=list(range(n_objects)))
 
         if setup_room:

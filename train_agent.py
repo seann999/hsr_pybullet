@@ -33,17 +33,19 @@ def show_viz(x, out, look_out):
     plt.plot([px_x], [px_y], '*r')
 
     plt.subplot(132)
-    plt.imshow(f, vmin=0, vmax=1)
+    plt.imshow(f)
     plt.colorbar()
 
     plt.subplot(133)
-    plt.imshow(look_out.detach().cpu().numpy()[0, 0], vmin=0, vmax=1)
+    plt.imshow(look_out.detach().cpu().numpy()[0, 0])
     plt.colorbar()
 
-    plt.gcf().set_size_inches(10, 8)
+    plt.gcf().set_size_inches(20, 8)
     plt.tight_layout()
     #plt.show()
     plt.savefig('debug.png')
+
+    #input('waiting')
 
 
 class QFCN(nn.Module):
