@@ -319,7 +319,7 @@ class HSREnv:
 
             curr = self.robot.get_states()['joint_position']
 
-            eq = np.abs(curr - prev) < 1e-3
+            eq = np.abs(curr - prev) < 1e-4  # 1e-3 too large
             timeout = [t >= steps] * len(eq[:-4]) + [t >= finger_steps] * 4
 
             if stop_at_contact:
@@ -340,7 +340,7 @@ class HSREnv:
                     print('stopping at contact')
                     break
 
-            if np.all(np.logical_or(eq, timeout)):
+            if t > 10 and np.all(np.logical_or(eq, timeout)):
                 # print('breaking at', t, 'steps')
                 # print(eq, timeout)
                 break
@@ -438,21 +438,20 @@ class HSREnv:
         down = R.from_matrix(mat[:3, :3]).as_quat()
 
         if np.abs(pos[0]) < BOUNDS and np.abs(pos[1]) < BOUNDS:
-            # print('move ee')
             self.move_ee(pos + np.array([0, 0, 0.3]), down)
 
             if self.break_criteria():
                 return True
-            # print('open')
+
             self.open_gripper()
             if self.break_criteria():
                 return True
-            # print('move ee')
+
             self.move_ee(pos, down, stop_at_contact=stop_at_contact)
             if self.break_criteria():
                 return True
-            # input('close?')
             # print('close')
+
             self.close_gripper()
             # print('done')
             # input('ok?')

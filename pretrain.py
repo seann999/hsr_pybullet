@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split
 import matplotlib.pyplot as plt
 from fcn_model import FCN
+from train_agent import phi
 
 
 class SegData:
@@ -56,12 +57,12 @@ optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
 
 train_losses, val_losses = [], []
 
-for ep in range(10000):
+for ep in range(30):
     total_loss = 0
     model.train()
 
     for i, (x, y) in enumerate(train_loader):
-        y_hat = model.forward(x.cuda())
+        y_hat = model.forward(phi(x).cuda())
         y = y.unsqueeze(1).cuda()
         loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
 
@@ -88,7 +89,7 @@ for ep in range(10000):
     model.eval()
 
     for i, (x, y) in enumerate(val_loader):
-        y_hat = model.forward(x.cuda())
+        y_hat = model.forward(phi(x).cuda())
         y = y.unsqueeze(1).cuda()
         loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
 
@@ -113,4 +114,5 @@ for ep in range(10000):
     plt.tight_layout()
     plt.savefig('pretrain_results/loss.png')
 
-    torch.save(model.state_dict(), 'pretrain_results/weights_{:03d}.p'.format(ep))
+    if ep % 10 == 0:
+        torch.save(model.state_dict(), 'pretrain_results/weights_{:03d}.p'.format(ep))

@@ -48,7 +48,7 @@ def show_viz(x, out, look_out):
 
 
 class QFCN(nn.Module):
-    def __init__(self, debug=False):
+    def __init__(self, debug=False, pretrain=None):
         super().__init__()
 
         rots = 16
@@ -56,6 +56,9 @@ class QFCN(nn.Module):
         self.grasp_model = FCN(rots)
         self.look_model = FCN(1)
         self.debug = debug
+
+        if pretrain:
+            self.grasp_model.load_state_dict(torch.load(pretrain))
 
     def forward(self, x):
         # print('inference:', x.shape)
@@ -119,6 +122,7 @@ if __name__ == '__main__':
     parser.add_argument('--depth-noise', action='store_true')
     parser.add_argument('--rot-noise', action='store_true')
     parser.add_argument('--test-run', action='store_true')
+    parser.add_argument('--pretrain', type=str, default=None)
     args = parser.parse_args()
 
     config = args2config(args)
@@ -134,7 +138,7 @@ if __name__ == '__main__':
     # eval_env = GraspEnv(connect=p.DIRECT, config=config)
     # eval_env = GraspEnv(check_visibility=True, connect=p.DIRECT)
     env = make_batch_env(config)
-    q_func = QFCN()
+    q_func = QFCN(pretrain=args.pretrain)
 
     gamma = 0.5
 
@@ -161,8 +165,6 @@ if __name__ == '__main__':
         phi=phi,
         max_grad_norm=100,
     )
-
-    #agent.load('result/test07-room4-1000/best')
 
     logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='')
 
