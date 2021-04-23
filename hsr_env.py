@@ -17,13 +17,13 @@ PROXIMAL_OPEN = 1
 PROXIMAL_CLOSE = -0.1
 BOUNDS = 5
 
-CAMERA_CONFIG = [{
+CAMERA_XTION_CONFIG = [{
     'image_size': (480, 640),
     'intrinsics': (537.4933389299223, 0.0, 319.9746375212718, 0.0, 536.5961755975517, 244.54846607953, 0.0, 0.0, 1.0),
     'position': None,
     'rotation': None,
     # 'lookat': (0, 0, 0),
-    'zrange': (0.01, 10.),
+    'zrange': (0.5, 10.),
     'noise': False
 }]
 
@@ -154,7 +154,7 @@ class HSREnv:
         base_pose = list(base_state.world_link_frame_position), list(base_state.world_link_frame_orientation)
         base_mat = pose2mat(*base_pose)
 
-        camera_config = copy.deepcopy(CAMERA_CONFIG)
+        camera_config = copy.deepcopy(CAMERA_XTION_CONFIG)
         camera_config[0]['position'] = list(head_state.world_link_frame_position)
         camera_config[0]['rotation'] = orn
 
@@ -282,6 +282,7 @@ class HSREnv:
     def holding_config(self):
         q = [0 for _ in self.robot.get_states()['joint_position']]
 
+        # arm joints
         q[5] = np.pi * -0.25
         q[8] = np.pi * 0.5
         q[9] = -np.pi * 0.5
@@ -290,7 +291,7 @@ class HSREnv:
 
     def reset_pose(self):
         neutral = self.holding_config()
-        neutral[0] = -2# q[0]
+        neutral[0] = np.random.uniform(-2, -1)# q[0]
         neutral[1] = np.random.uniform(-1, 1)# q[1]
         # neutral[2] = q[2]
 
@@ -471,7 +472,7 @@ DEFAULT_CONFIG = {
 
 
 class GraspEnv:
-    def __init__(self, check_visibility=False, n_objects=78, config=DEFAULT_CONFIG, setup_room=True, **kwargs):
+    def __init__(self, n_objects=70, config=DEFAULT_CONFIG, setup_room=True, **kwargs):
         self.env = HSREnv(**kwargs)
         self.obj_ids = eu.spawn_ycb(self.env.c_gui, ids=list(range(n_objects)))
 
@@ -511,7 +512,6 @@ class GraspEnv:
         self.spawn_box = [[-1.5, -1, 0.4], [-0.5, 1.5, 0.6]]# [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
         self.spawn_radius = 3
 
-        self.check_visibility = check_visibility
         self.steps = 0
 
         self.object_collision, self.furniture_collision = False, False
@@ -641,9 +641,13 @@ class GraspEnv:
         num_objs = np.random.randint(1, 30)
         selected = np.random.permutation(self.obj_ids)[:num_objs]
 
-        # print('reset pose')
         self.env.reset_pose()
-        # print('reset done')
+
+        self.env.move_joints({
+            'joint_rz': np.random.uniform(-np.pi, np.pi),
+            'head_tilt_joint': np.random.uniform(-1.57, 0),
+            # 'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
+        }, sim=False)
 
         for i, id in enumerate(selected):
             if self.spawn_mode == 'box':
@@ -663,10 +667,13 @@ class GraspEnv:
                 self.env.c_gui.resetBasePositionAndOrientation(id, pos, R.random().as_quat())
                 valid = True
 
-                for prev in selected[:i]:
-                    if len(self.env.c_gui.getClosestPoints(id, prev, 0)) > 0:
-                        valid = False
-                        break
+                if len(self.env.c_gui.getClosestPoints(id, self.env.robot.id, 0)) > 0:
+                    valid = False
+                else:
+                    for prev in selected[:i]:
+                        if len(self.env.c_gui.getClosestPoints(id, prev, 0)) > 0:
+                            valid = False
+                            break
 
                 if valid:
                     break
@@ -675,7 +682,7 @@ class GraspEnv:
 
         # print('settle')
         x = [self.env.c_gui.getBasePositionAndOrientation(i)[0] for i in selected]
-        for t in range(240 * 5):
+        for t in range(240 * 10):
             self.env.c_gui.stepSimulation()
             y = [self.env.c_gui.getBasePositionAndOrientation(i)[0] for i in selected]
 
@@ -686,17 +693,6 @@ class GraspEnv:
 
             x = y
         # print('settle done')
-
-        for _ in range(10):
-            self.env.move_joints({
-                'joint_rz': np.random.uniform(-np.pi, np.pi),
-                'head_tilt_joint': np.random.uniform(np.pi * -0.25, 0),
-                # 'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
-            }, sim=False)
-
-            if not self.check_visibility or np.logical_and(self.obj_ids[0] <= self.segmap,
-                                                  self.obj_ids[-1] >= self.segmap).sum() > 0:
-                break
 
         hmap = self.update_obs()
 
@@ -709,7 +705,7 @@ class GraspEnv:
 
         self.object_collision, self.furniture_collision = False, False
 
-        return np.stack([hmap, hmap, hmap])
+        return hmap
 
     def update_obs(self):
         rgb, depth, seg, config = self.env.get_heightmap(only_render=True, return_seg=True, bounds=self.hmap_bounds,
@@ -721,11 +717,16 @@ class GraspEnv:
         assert hmap.shape[0] == self.res and hmap.shape[1] == self.res, 'resolutions do not match {} {}'.format(
             hmap.shape, self.res)
 
+        self.rgb = rgb
+        self.depth = depth
+        self.seg = seg
+        self.cmap = cmap
+
         self.hmap = hmap
         self.obs_config = config
         self.segmap = segmap
 
-        return hmap
+        return hmap[None]
 
     def set_seed(self, idx):
         self.seed = idx
@@ -863,7 +864,7 @@ class GraspEnv:
 
         hmap = self.update_obs()
 
-        return np.stack([hmap, hmap, hmap]), reward, done, {}
+        return hmap, reward, done, {}
 
 
 def to_maps(rgb, depth, seg, config, bounds, px_size, depth_noise=False, pos_noise=False, rot_noise=False):

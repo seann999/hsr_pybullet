@@ -26,7 +26,7 @@ if __name__ == '__main__':
 
     config = {'depth_noise': True, 'rot_noise': True, 'action_grasp': True,
               'action_look': True, 'spawn_mode': 'circle'}
-    env = GraspEnv(check_visibility=False, config=config, n_objects=args.n_objects, connect=p.GUI if args.gui else p.DIRECT)
+    env = GraspEnv(config=config, n_objects=args.n_objects, connect=p.GUI if args.gui else p.DIRECT)
     q_func = QFCN(debug=args.debug_agent)
     replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6)
 

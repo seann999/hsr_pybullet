@@ -104,10 +104,10 @@ def make_env(idx, config):
     return env
 
 
-def make_batch_env(config):
+def make_batch_env(config, n_envs=64):
     vec_env = pfrl.envs.MultiprocessVectorEnv([
         functools.partial(make_env, idx, config)
-        for idx, env in enumerate(range(64))
+        for idx, env in enumerate(range(n_envs))
     ])
     
     return vec_env
