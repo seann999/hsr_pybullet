@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 import argparse
 import os
 import yaml
+import functools
+import traceback
 
 
 def show_viz(x, out, look_out):
@@ -56,6 +58,7 @@ class QFCN(nn.Module):
         self.debug = debug
 
     def forward(self, x):
+        # print('inference:', x.shape)
         bs = len(x)
         out = self.grasp_model(x)
 
@@ -72,6 +75,9 @@ class QFCN(nn.Module):
         out = torch.cat([out, look_out], 1)
         out = out.reshape(bs, -1)  # N x RHW
 
+        #for line in traceback.format_stack():
+        #    print(line.strip())
+        #print('done.')
         return pfrl.action_value.DiscreteActionValue(out)
 
 
@@ -81,13 +87,30 @@ def args2config(args):
         'rot_noise': args.rot_noise,
         'action_grasp': True,
         'action_look': True,
-        'spawn_mode': 'circle'
+        'spawn_mode': 'circle',
+        'res': 224,
+        'rots': 16,
     }
 
 
 def phi(x):
     # normalize heightmap
-    return (x - 0.05) / 0.05
+    return (x - 0.2) / 0.2
+
+
+def make_env(idx, config):
+    env = GraspEnv(connect=p.DIRECT, config=config)
+    env.set_seed(idx)
+    return env
+
+
+def make_batch_env(config):
+    vec_env = pfrl.envs.MultiprocessVectorEnv([
+        functools.partial(make_env, idx, config)
+        for idx, env in enumerate(range(64))
+    ])
+    
+    return vec_env
 
 
 if __name__ == '__main__':
@@ -108,43 +131,50 @@ if __name__ == '__main__':
     with open(os.path.join(args.outdir, 'config.yaml'), 'w') as file:
         yaml.dump(config, file)
 
-    env = GraspEnv(connect=p.DIRECT, config=config)
+    # eval_env = GraspEnv(connect=p.DIRECT, config=config)
     # eval_env = GraspEnv(check_visibility=True, connect=p.DIRECT)
+    env = make_batch_env(config)
     q_func = QFCN()
 
     gamma = 0.5
 
     explorer = pfrl.explorers.LinearDecayEpsilonGreedy(
-        0.5, 0.1, 5000, random_action_func=env.random_action_sample)
-    optimizer = torch.optim.Adam(q_func.parameters(), eps=1e-4, weight_decay=1e-4)
-    replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6, betasteps=5000)
+        1, 0.01, 16000, random_action_func=GraspEnv.random_action_sample_fn(config, False))
+    #optimizer = torch.optim.Adam(q_func.parameters(), lr=1e-4, eps=0.01, weight_decay=1e-4)
+    optimizer = torch.optim.SGD(q_func.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0001)
+    #replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10000, betasteps=160000//4)
+    replay_buffer = pfrl.replay_buffers.ReplayBuffer(10000, 1)
 
     gpu = 0
 
-    agent = pfrl.agents.DQN(
+    agent = pfrl.agents.DoubleDQN(
         q_func,
         optimizer,
         replay_buffer,
         gamma,
         explorer,
-        replay_start_size=1 if args.test_run else 100,
-        update_interval=1,
-        target_update_interval=1,
-        minibatch_size=1 if args.test_run else 32,
+        replay_start_size=16 if args.test_run else 4000,
+        update_interval=4,
+        target_update_interval=1000,
+        minibatch_size=8 if args.test_run else 8,
         gpu=gpu,
         phi=phi,
+        max_grad_norm=100,
     )
+
+    #agent.load('result/test07-room4-1000/best')
 
     logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='')
 
-    pfrl.experiments.train_agent_with_evaluation(
+    pfrl.experiments.train_agent_batch_with_evaluation(
         agent,
-        env,
-        steps=50000,
+        env=env,
+        steps=160000,
+        log_interval=1000,
         eval_n_steps=None,
-        eval_n_episodes=20,
-        train_max_episode_len=200,
-        eval_interval=500,
+        eval_n_episodes=10,
+        max_episode_len=10,
+        eval_interval=1000,
         outdir=args.outdir,
         save_best_so_far_agent=True,
         # eval_env=eval_env,

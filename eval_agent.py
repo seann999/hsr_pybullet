@@ -20,12 +20,13 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, default='result/test04/best')
     parser.add_argument('--show-hmap', action='store_true')
     parser.add_argument('--debug-agent', action='store_true')
+    parser.add_argument('--gui', action='store_true')
     parser.add_argument('--n-objects', type=int, default=30)
     args = parser.parse_args()
 
     config = {'depth_noise': True, 'rot_noise': True, 'action_grasp': True,
               'action_look': True, 'spawn_mode': 'circle'}
-    env = GraspEnv(check_visibility=False, config=config, n_objects=args.n_objects, connect=p.GUI)
+    env = GraspEnv(check_visibility=False, config=config, n_objects=args.n_objects, connect=p.GUI if args.gui else p.DIRECT)
     q_func = QFCN(debug=args.debug_agent)
     replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6)
 
@@ -65,12 +66,26 @@ if __name__ == '__main__':
     max_episode_len = 100
     n_episodes = 100
 
+    config = {
+        'depth_noise': True,
+        'rot_noise': True,
+        'action_grasp': True,
+        'action_look': True,
+        'spawn_mode': 'circle',
+        'res': 224,
+        'rots': 16,
+    }
+    random_fn = GraspEnv.random_action_sample_fn(config)
+
     def do_trials():
         for i in range(1, n_episodes + 1):
+            print('resetting')
             obs = env.reset()
+            print('reset done')
             R = 0  # return (sum of rewards)
             t = 0  # time step
             while True:
+                print('>>>>')
                 if args.show_hmap:
                     cv2.imshow('hmap', np.uint8(obs[0] / obs[0].max() * 255))
                     cv2.waitKey(1)
@@ -78,18 +93,20 @@ if __name__ == '__main__':
                 # Uncomment to watch the behavior in a GUI window
                 # env.render()
                 if agent_type == 'random':
-                    action = env.random_action_sample()
+                    action = random_fn()
                 else:
                     action = agent.act(obs)
 
+                print('acting')
                 obs, reward, done, _ = env.step(action)
+                print('acted')
                 R += reward
                 t += 1
                 reset = t == max_episode_len
                 if done or reset:
                     break
 
-            print('-----')
+            print(R, '-----')
 
 
     if agent_type == 'max' or agent_type == 'random':

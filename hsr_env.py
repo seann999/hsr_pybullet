@@ -1,3 +1,4 @@
+import time
 import pybullet as p
 import pybullet_utils.bullet_client as bc
 import pybullet_data
@@ -111,6 +112,8 @@ class HSREnv:
         self.marker_id = c_gui.createMultiBody(basePosition=[0, 0, 0], baseCollisionShapeIndex=-1,
                                                baseVisualShapeIndex=vs_id)
 
+        self.break_criteria = lambda: False
+
         # print(self.robot.get_joint_infos())
 
     def get_robot_info(self):
@@ -186,7 +189,7 @@ class HSREnv:
         self.c_gui.changeVisualShape(self.marker_id, -1, rgbaColor=(0, 1, 0, 1))
         self.c_gui.resetBasePositionAndOrientation(self.marker_id, v + np.array([0, 0, 0.1]), [0, 0, 0, 1])
 
-        for _ in range(100):
+        for _ in range(1000):
             curr_state = self.robot_direct.get_link_state_by_name('head_rgbd_sensor_gazebo_frame_joint')
             head_pos = np.array(curr_state.world_link_frame_position)
             head_orn = np.array(curr_state.world_link_frame_orientation)
@@ -228,6 +231,10 @@ class HSREnv:
         if sim:
             self.set_joint_position(curr_q, True)
             self.steps()
+
+            # print('target', v)
+            # print('error;', error_angle)
+            # input('ok?')
         else:
             self.reset_joints(curr_q, True)
 
@@ -300,15 +307,18 @@ class HSREnv:
         self.set_joint_position(q, True)
         self.steps()
 
-    def steps(self, steps=240 * 30, finger_steps=240, stop_at_contact=False):
+    def steps(self, steps=240 * 10, finger_steps=240, stop_at_contact=False):
         prev = self.robot.get_states()['joint_position']
 
         for t in range(steps):
+            if self.break_criteria():
+                break
+
             self.c_gui.stepSimulation()
 
             curr = self.robot.get_states()['joint_position']
 
-            eq = np.abs(curr - prev) < 1e-4
+            eq = np.abs(curr - prev) < 1e-3
             timeout = [t >= steps] * len(eq[:-4]) + [t >= finger_steps] * 4
 
             if stop_at_contact:
@@ -331,6 +341,7 @@ class HSREnv:
 
             if np.all(np.logical_or(eq, timeout)):
                 # print('breaking at', t, 'steps')
+                # print(eq, timeout)
                 break
 
             prev = curr
@@ -360,22 +371,22 @@ class HSREnv:
 
         success = False
 
-        for i in range(1000):
+        for i in range(10):
             q = self.c_direct.calculateInverseKinematics(self.robot_direct.id, 34, pos, orn, lowerLimits=lowers,
                                                          upperLimits=uppers,
                                                          jointRanges=self.ranges, restPoses=orig_q,
-                                                         maxNumIterations=10000, residualThreshold=1e-5)
+                                                         maxNumIterations=1000, residualThreshold=1e-4)
             q = list(q)
             self.reset_joints(q, False)
 
             gripper_state = self.c_direct.getLinkState(self.robot_direct.id, 34, computeForwardKinematics=1)
 
             pos_err = np.linalg.norm(np.array(gripper_state[4]) - pos)
-            orn_err = (R.from_quat(gripper_state[1]) * R.from_quat(orn).inv()).as_euler('xyz')
+            orn_err = 1 - np.dot(gripper_state[1], orn)**2.0
 
             # print(i, pos_err, orn_err)
 
-            if pos_err < 0.01 and np.max(np.abs(orn_err)) < 0.01:
+            if pos_err < 0.01 and orn_err < 0.01:
                 success = True
                 break
             else:
@@ -386,7 +397,7 @@ class HSREnv:
                 self.reset_joints(sample, False)
 
         if not success:
-            print('FAILED TO FIND IK')
+            print('FAILED TO FIND ACCURATE IK')
 
         # q[-1] = DISTAL_OPEN if open else DISTAL_CLOSE
         # q[-2] = PROXIMAL_OPEN if open else PROXIMAL_CLOSE
@@ -410,7 +421,7 @@ class HSREnv:
         self.set_joint_position(q[:-4], True)
 
         steps = 240 * t
-        self.steps(steps, stop_at_contact=stop_at_contact)
+        return self.steps(steps, stop_at_contact=stop_at_contact)
 
     def grasp_primitive(self, pos, angle=0, frame=None, stop_at_contact=False):
         if frame is None:
@@ -426,13 +437,24 @@ class HSREnv:
         down = R.from_matrix(mat[:3, :3]).as_quat()
 
         if np.abs(pos[0]) < BOUNDS and np.abs(pos[1]) < BOUNDS:
+            # print('move ee')
             self.move_ee(pos + np.array([0, 0, 0.3]), down)
+
+            if self.break_criteria():
+                return True
+            # print('open')
             self.open_gripper()
+            if self.break_criteria():
+                return True
+            # print('move ee')
             self.move_ee(pos, down, stop_at_contact=stop_at_contact)
+            if self.break_criteria():
+                return True
             # input('close?')
+            # print('close')
             self.close_gripper()
+            # print('done')
             # input('ok?')
-            self.move_ee(pos + np.array([0, 0, 0.3]), down)
 
             return True
 
@@ -461,9 +483,21 @@ class GraspEnv:
         self.res = 224
         self.px_size = 3.0 / self.res
         self.num_rots = 16
+        self.stats = {
+            'object_collisions': 0,
+            'furniture_collisions': 0,
+            'episodes': 0,
+            'grasp_success_collision': 0,
+            'grasp_success_safe': 0,
+            'grasp_failure_collision': 0,
+            'grasp_failure_safe': 0,
+            'grasp_attempts': 0,
+            'oob_actions': 0,
+        }
 
         self.observation_space = Box(-1, 1, (self.res, self.res))
         self.config = config
+        self.seed = None
 
         n_actions = (int(config['action_grasp']) * self.num_rots + int(config['action_look'])) * self.res * self.res
         self.action_space = Discrete(n_actions)
@@ -471,7 +505,7 @@ class GraspEnv:
         self.hmap, self.obs_config, self.segmap = None, None, None
 
         self.dummy = np.zeros((3, self.res, self.res), dtype=np.float32)
-        self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 0.3]])
+        self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 1]])
 
         self.spawn_mode = 'box'# config['spawn_mode']
         self.spawn_box = [[-1.5, -1, 0.4], [-0.5, 1.5, 0.6]]# [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
@@ -500,7 +534,11 @@ class GraspEnv:
 
             return wrapper
 
+        def break_criteria():
+            return self.furniture_collision
+
         self.env.c_gui.stepSimulation = wrapper(self.env.c_gui.stepSimulation)
+        self.env.break_criteria = break_criteria
 
     def generate_room(self):
         ids = []
@@ -576,25 +614,36 @@ class GraspEnv:
 
         return ids
 
-    def random_action_sample(self):
-        primitive = np.random.randint(int(self.config['action_grasp']) + int(self.config['action_look']))
-        if primitive == 0:
-            return np.random.randint(self.num_rots * self.res * self.res)
-        elif primitive == 1:
-            offset = self.num_rots * self.res * self.res
-            return offset + np.random.randint(self.res * self.res)
+    def random_action_sample_fn(config, uniform=False):
+        if uniform:
+            def fn():
+                return np.random.randint((config['rots'] + 1) * config['res'] * config['res'])
+        else:
+            def fn():
+                primitive = np.random.randint(int(config['action_grasp']) + int(config['action_look']))
+                if primitive == 0:
+                    return np.random.randint(config['rots'] * config['res'] * config['res'])
+                elif primitive == 1:
+                    offset = config['rots'] * config['res'] * config['res']
+                    return offset + np.random.randint(config['res'] * config['res'])
 
-        raise Exception('invalid primitive')
+                raise Exception('invalid primitive')
+
+        return fn
 
     def reset(self):
+        self.ep_start_time = time.time()
+
         for id in self.obj_ids:
             self.env.c_gui.resetBasePositionAndOrientation(id, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
             self.env.c_gui.changeDynamics(id, -1, mass=0)
 
-        num_objs = np.random.randint(5, 30)
+        num_objs = np.random.randint(1, 30)
         selected = np.random.permutation(self.obj_ids)[:num_objs]
 
+        # print('reset pose')
         self.env.reset_pose()
+        # print('reset done')
 
         for i, id in enumerate(selected):
             if self.spawn_mode == 'box':
@@ -610,11 +659,33 @@ class GraspEnv:
             pos = (x, y, z)
             # pos = self.pos[i]
 
-            self.env.c_gui.resetBasePositionAndOrientation(id, pos, R.random().as_quat())
+            for t in range(10):
+                self.env.c_gui.resetBasePositionAndOrientation(id, pos, R.random().as_quat())
+                valid = True
+
+                for prev in selected[:i]:
+                    if len(self.env.c_gui.getClosestPoints(id, prev, 0)) > 0:
+                        valid = False
+                        break
+
+                if valid:
+                    break
+
             self.env.c_gui.changeDynamics(id, -1, mass=0.1)
 
-        for _ in range(240 * 5):
+        # print('settle')
+        x = [self.env.c_gui.getBasePositionAndOrientation(i)[0] for i in selected]
+        for t in range(240 * 5):
             self.env.c_gui.stepSimulation()
+            y = [self.env.c_gui.getBasePositionAndOrientation(i)[0] for i in selected]
+
+            diff = np.abs(np.array(x) - np.array(y))
+            if t > 10 and np.all(diff < 1e-3):
+                # print('breaking at', t)
+                break
+
+            x = y
+        # print('settle done')
 
         for _ in range(10):
             self.env.move_joints({
@@ -655,6 +726,10 @@ class GraspEnv:
         self.segmap = segmap
 
         return hmap
+
+    def set_seed(self, idx):
+        self.seed = idx
+        np.random.seed(idx)
 
     def step(self, action):
         action_type = None
@@ -709,33 +784,50 @@ class GraspEnv:
             if self.env.grasp_primitive([x, y, z], angle, frame=self.obs_config['base_frame'], stop_at_contact=False):
                 self.env.holding_pose()
 
-                for _ in range(240):
-                    self.env.stepSimulation()
+                if self.env.break_criteria():
+                    grasp_success = False
+                else:
+                    for _ in range(240):
+                        self.env.stepSimulation()
 
-                grasp_success = False
-                obj = None
+                    grasp_success = False
+                    obj = None
 
-                points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=40)
-                for c in points:
-                    if c[2] in self.obj_ids:
-                        grasp_success = True
-                        obj = c[2]
-                        break
-                if not grasp_success:
-                    points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=46)
+                    points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=40)
                     for c in points:
                         if c[2] in self.obj_ids:
                             grasp_success = True
                             obj = c[2]
                             break
+                    if not grasp_success:
+                        points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=46)
+                        for c in points:
+                            if c[2] in self.obj_ids:
+                                grasp_success = True
+                                obj = c[2]
+                                break
 
-                if grasp_success:
-                    self.env.c_gui.resetBasePositionAndOrientation(obj, (-100, np.random.uniform(-100, 100), -100),
-                                                                   (0, 0, 0, 1))
+                    if grasp_success:
+                        self.env.c_gui.resetBasePositionAndOrientation(obj, (-100, np.random.uniform(-100, 100), -100),
+                                                                       (0, 0, 0, 1))
 
                 reward = 1 if grasp_success else -0.1
+
+                if grasp_success:
+                    if self.object_collision:
+                        self.stats['grasp_success_collision'] += 1
+                    else:
+                        self.stats['grasp_success_safe'] += 1
+                else:
+                    if self.object_collision:
+                        self.stats['grasp_failure_collision'] += 1
+                    else:
+                        self.stats['grasp_failure_safe'] += 1
+
+                self.stats['grasp_attempts'] += 1
                 # done |= grasp_success
             else:
+                self.stats['oob_actions'] += 1
                 reward = -0.25
         elif action_type == 'look':
             surface_height = 0
@@ -754,9 +846,20 @@ class GraspEnv:
         else:
             raise Exception('no valid action')
 
-        if self.furniture_collision or self.object_collision:
+        self.stats['furniture_collisions'] += int(self.furniture_collision)
+        self.stats['object_collisions'] += int(self.object_collision)
+
+        if self.furniture_collision:
             reward = -0.25
             done = True
+        elif self.object_collision:
+            reward = min(reward * 0.1, reward)
+            # done = True
+
+        if done:
+            self.stats['episodes'] += 1
+
+            print('seed:', self.seed, self.stats, time.time() - self.ep_start_time)
 
         hmap = self.update_obs()
 
