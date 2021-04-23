@@ -17,7 +17,7 @@ class FCN(nn.Module):
 
         #modules = list(models.resnet18().children())[:-5]
         #self.backbone = nn.Sequential(*modules)
-        self.resnet = resnet.resnet18(num_input_channels=3)#models.resnet18()
+        self.resnet = resnet.resnet18(num_input_channels=1)#models.resnet18()
         #backbone = resnet.resnet18(num_input_channels=3, num_classes=1)
         #self.resnet.cuda()
         #self.backbone = backbone.features
