@@ -220,8 +220,8 @@ class HSREnv:
 
                 correction_conf = j_r.dot(correction_euler)
                 mask = np.zeros_like(correction_conf)
-                mask[2] = 1.0
-                mask[5] = 1.0
+                mask[2] = 1.0  # base rotation
+                mask[5] = 1.0  # head tilt
                 correction_conf *= mask
 
                 curr_q = curr_q + correction_conf
@@ -308,7 +308,7 @@ class HSREnv:
         self.set_joint_position(q, True)
         self.steps()
 
-    def steps(self, steps=240 * 10, finger_steps=240, stop_at_contact=False):
+    def steps(self, steps=240 * 10, finger_steps=240, stop_at_stop=True, stop_at_contact=False):
         prev = self.robot.get_states()['joint_position']
 
         for t in range(steps):
@@ -340,12 +340,16 @@ class HSREnv:
                     print('stopping at contact')
                     break
 
-            if t > 10 and np.all(np.logical_or(eq, timeout)):
+            if stop_at_stop and t > 10 and np.all(np.logical_or(eq, timeout)):
                 # print('breaking at', t, 'steps')
                 # print(eq, timeout)
                 break
 
             prev = curr
+
+        q = self.robot.get_states()['joint_position']
+        q[2] %= (2*np.pi)
+        self.reset_joints(q, True)
 
     def stepSimulation(self):
         self.c_gui.stepSimulation()
@@ -366,16 +370,19 @@ class HSREnv:
         self.c_gui.resetBasePositionAndOrientation(self.marker_id, pos, orn)
         self.reset_joints(orig_q, False)
 
-        lowers, uppers = list(self.lowers), list(self.uppers)
-        lowers[2] = orig_q[2]  # -np.pi * 0.2
-        uppers[2] = orig_q[2]  # np.pi * 0.2
+        lowers, uppers, ranges = list(self.lowers), list(self.uppers), list(self.ranges)
+
+        for i in [2, 4, 5]:
+            lowers[i] = orig_q[i]
+            uppers[i] = orig_q[i]
+            # ranges[i] = 0.01
 
         success = False
 
         for i in range(10):
             q = self.c_direct.calculateInverseKinematics(self.robot_direct.id, 34, pos, orn, lowerLimits=lowers,
                                                          upperLimits=uppers,
-                                                         jointRanges=self.ranges, restPoses=orig_q,
+                                                         jointRanges=ranges, restPoses=orig_q,
                                                          maxNumIterations=1000, residualThreshold=1e-4)
             q = list(q)
             self.reset_joints(q, False)
@@ -394,6 +401,7 @@ class HSREnv:
                 sample = list(np.array(self.robot.action_space.sample()['joint_position']))
                 sample[0] %= 10.0
                 sample[1] %= 10.0
+                # sample[2] %= (2*np.pi)
 
                 self.reset_joints(sample, False)
 
@@ -419,6 +427,7 @@ class HSREnv:
                 q[2] = orig_q[2] - diff
 
         # set_joint_position(robot, orig_q, sim=False)
+
         self.set_joint_position(q[:-4], True)
 
         steps = 240 * t
