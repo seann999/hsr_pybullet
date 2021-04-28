@@ -1,3 +1,10 @@
+import sys
+
+try:
+    sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
+except:
+    pass
+
 from scipy.spatial.transform import Rotation as R
 import os
 import trimesh
@@ -271,3 +278,21 @@ def distort(depth, noise=1.0):
 #
 #     def simulate(self, gt_depth):
 #         return _simulate(gt_depth, self.model, self.noise_multiplier)
+
+
+if __name__ == '__main__':
+    from multiprocessing import Pool
+
+    paths = sorted([x for x in os.listdir('shapenetsem/original') if x.endswith('.obj')])
+
+    def create_collision(x):
+        path = 'shapenetsem/original/{}'.format(x)
+        collision_path = 'shapenetsem/collision/{}'.format(x)
+
+        if os.path.exists(collision_path):
+            return
+
+        p.vhacd(path, collision_path, 'log.txt')
+
+    pool = Pool(8)
+    result = pool.map(create_collision, paths)
