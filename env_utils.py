@@ -93,20 +93,9 @@ def get_heightmaps(client, configs, bounds=None, return_seg=False, px_size=0.003
 def load_obj(client, mesh_path, collision_path, area=[[0.5, 3.0], [-1.5, 1.5], [0.4, 0.6]]):
     name_log = 'log.txt'
 
-    mesh = trimesh.load(mesh_path, force='mesh')
+    mesh = trimesh.load(mesh_path, force='mesh', process=False)
 
-    if len(mesh.split()) > 1:
-        return False, None
-
-    success = mesh.fill_holes()
-
-    if success:
-        new_path = mesh_path[:-4] + '_watertight.obj'
-        mesh.export(new_path)
-        mesh_path = new_path
-    else:
-        print('mesh is not watertight!')
-        return False, None
+    assert len(mesh.split()) == 1 and mesh.is_watertight
 
     if not os.path.exists(collision_path):
         p.vhacd(mesh_path, collision_path, name_log)
@@ -114,10 +103,7 @@ def load_obj(client, mesh_path, collision_path, area=[[0.5, 3.0], [-1.5, 1.5], [
     max_side = max(mesh.extents)
     scale = np.random.uniform(0.06, 0.35) / max_side
 
-    matrix = np.eye(4)
-    matrix[:2, :2] *= scale
-    mesh.apply_transform(matrix)
-
+    mesh.apply_scale(scale)
     scale = [scale, scale, scale]
 
     viz_shape_id = client.createVisualShape(
@@ -134,7 +120,8 @@ def load_obj(client, mesh_path, collision_path, area=[[0.5, 3.0], [-1.5, 1.5], [
         fileName=collision_path, meshScale=scale,
     )
 
-    print('CENTER', mesh.centroid)
+    mesh.density = 150
+    # print('CENTER', mesh.center_mass, mesh.mass)
 
     obj_id = client.createMultiBody(
         baseMass=0.1,
@@ -144,46 +131,50 @@ def load_obj(client, mesh_path, collision_path, area=[[0.5, 3.0], [-1.5, 1.5], [
         baseCollisionShapeIndex=col_shape_id,
         baseVisualShapeIndex=viz_shape_id,
         baseOrientation=R.random().as_quat(),
-        baseInertialFramePosition=np.array(mesh.centroid) * scale,
+        baseInertialFramePosition=np.array(mesh.center_mass),
     )
 
     return True, obj_id
 
 
-def spawn_ycb(client, ids=None, ycb=False):
+def spawn_objects(client, ids=None, ycb=False):
     if ycb:
-        folders = sorted([x for x in os.listdir('ycb') if os.path.isdir('ycb/{}'.format(x))])
+        paths = sorted([x for x in os.listdir('ycb') if os.path.isdir('ycb/{}'.format(x))])
     else:
-        paths = sorted([x for x in os.listdir('/home/sean/data/shapenetsem/models') if x.endswith('.obj') and 'collision' not in x])
+        paths = sorted([x for x in os.listdir('shapenetsem/original') if x.endswith('.obj')])
+
     obj_ids = []
 
     if ids is None:
-        ids = np.random.randint(0, len(folders), 10)
+        ids = np.random.randint(0, len(paths), 10)
+        print('>>>>', ids)
 
-    index = 0
+    # index = 0
     for i in ids:
         #x = folders[i]
 
         while True:
-            x = paths[index]#random.choice(paths)
+            x = paths[i]#random.choice(paths)
 
-            #path = 'ycb/{}/google_16k/textured.obj'.format(x)
-            #collision_path = 'ycb/{}/google_16k/collision.obj'.format(x)
-            path = '/home/sean/data/shapenetsem/models/{}'.format(x)
-            collision_path = path[:-4] + '_collision.obj'
+            if ycb:
+                path = 'ycb/{}/google_16k/textured.obj'.format(x)
+                collision_path = 'ycb/{}/google_16k/collision.obj'.format(x)
+            else:
+                path = 'shapenetsem/original/{}'.format(x)
+                collision_path = 'shapenetsem/collision/{}'.format(x)
 
             success, obj_id = load_obj(client, path, collision_path)
 
             if not success:
                 print('failed load')
-                index += 1
+                # index += 1
                 continue
 
             # client.changeVisualShape(obj_id, -1, textureUniqueId=-1)
             client.changeDynamics(obj_id, -1, lateralFriction=0.5)
 
             obj_ids.append(obj_id)
-            index += 1
+            # index += 1
 
             break
 

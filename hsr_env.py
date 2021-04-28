@@ -474,7 +474,8 @@ class GraspEnv:
     def __init__(self, check_visibility=False, n_objects=78, config=DEFAULT_CONFIG, setup_room=True, **kwargs):
         self.env = HSREnv(**kwargs)
 
-        self.obj_ids = eu.spawn_ycb(self.env.c_gui, ids=list(range(n_objects)))
+        self.obj_ids = []
+        # self.obj_ids = eu.spawn_ycb(self.env.c_gui)#, ids=list(range(n_objects)))
 
         if setup_room:
             self.furn_ids = self.generate_room()
@@ -630,6 +631,11 @@ class GraspEnv:
 
     def reset(self):
         self.ep_start_time = time.time()
+
+        for obj in self.obj_ids:
+            self.env.c_gui.removeBody(obj)
+
+        self.obj_ids = eu.spawn_objects(self.env.c_gui)
 
         for id in self.obj_ids:
             self.env.c_gui.resetBasePositionAndOrientation(id, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
