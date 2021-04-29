@@ -27,6 +27,10 @@ CAMERA_XTION_CONFIG = [{
     'noise': False
 }]
 
+# hand palm link to hand cam
+#([0.03897505473979222, -0.015070500210564188, -0.004196379764539657], [-0.04207608800145346, -0.040159067991881625, 0.7057767579836123, 0.7060424662969788])
+# realsense intrinsics
+# [609.7646484375, 0.0, 313.8269958496094, 0.0, 609.2198486328125, 239.64578247070312, 0.0, 0.0, 1.0],
 
 # robot.set_actions({'joint_position': q}) exceeds max velocity, so use this fn
 def set_joint_position(client, robot, joint_position, max_forces=None, use_joint_effort_limits=True):
