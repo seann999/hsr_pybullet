@@ -295,3 +295,4 @@ if __name__ == '__main__':
 
     pool = Pool(8)
     result = pool.map(create_collision, paths)
+
