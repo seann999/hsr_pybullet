@@ -27,10 +27,6 @@ if __name__ == '__main__':
     config = {'depth_noise': True, 'rot_noise': True, 'action_grasp': True,
               'action_look': True, 'spawn_mode': 'circle'}
     env = GraspEnv(config=config, n_objects=args.n_objects, connect=p.GUI if args.gui else p.DIRECT)
-    q_func = QFCN(debug=args.debug_agent)
-    replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6)
-
-    gpu = 0
 
     class MaxAgent:
         def __init__(self):
@@ -50,6 +46,11 @@ if __name__ == '__main__':
     elif agent_type == 'random':
         pass
     else:
+        q_func = QFCN(debug=args.debug_agent)
+        replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6)
+
+        gpu = 0
+
         agent = pfrl.agents.DQN(
             q_func,
             None,
@@ -61,7 +62,6 @@ if __name__ == '__main__':
         )
 
         agent.load(args.model)
-
 
     print('>>>>>starting eval')
     max_episode_len = 100

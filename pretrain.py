@@ -58,7 +58,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
 
 train_losses, val_losses = [], []
 
-for ep in range(30):
+for ep in range(31):
     total_loss = 0
     model.train()
 
