@@ -114,7 +114,7 @@ def load_obj(client, mesh_path, collision_path, area=[[0.5, 3.0], [-1.5, 1.5], [
     scale = [scale, scale, scale]
 
     viz_shape_id = client.createVisualShape(
-        shapeType=p.GEOM_MESH,
+        shapeType=client.GEOM_MESH,
         fileName=mesh_path, meshScale=scale)
 
     # print(mesh.center_mass)
@@ -123,7 +123,7 @@ def load_obj(client, mesh_path, collision_path, area=[[0.5, 3.0], [-1.5, 1.5], [
     # print(mesh.moment_inertia)
 
     col_shape_id = client.createCollisionShape(
-        shapeType=p.GEOM_MESH,
+        shapeType=client.GEOM_MESH,
         fileName=collision_path, meshScale=scale,
     )
 
@@ -132,28 +132,28 @@ def load_obj(client, mesh_path, collision_path, area=[[0.5, 3.0], [-1.5, 1.5], [
 
     obj_id = client.createMultiBody(
         baseMass=0.1,
-        basePosition=(np.random.uniform(area[0][0], area[0][1]),
-                      np.random.uniform(area[1][0], area[1][1]),
-                      np.random.uniform(area[2][0], area[2][1])),
+        basePosition=(0, 0, 0),
         baseCollisionShapeIndex=col_shape_id,
         baseVisualShapeIndex=viz_shape_id,
-        baseOrientation=R.random().as_quat(),
+        baseOrientation=(0, 0, 0, 1),
         baseInertialFramePosition=np.array(mesh.center_mass),
     )
 
     return True, obj_id
 
 
-def spawn_objects(client, ids=None, ycb=False):
+def spawn_objects(client, ids=None, ycb=False, num_spawn=None):
     if ycb:
         paths = sorted([x for x in os.listdir('ycb') if os.path.isdir('ycb/{}'.format(x))])
     else:
         paths = sorted([x for x in os.listdir('shapenetsem/original') if x.endswith('.obj')])
 
     obj_ids = []
+    area = [[0.5, 3.0], [-1.5, 1.5], [0.4, 0.6]]
 
     if ids is None:
-        ids = np.random.randint(0, len(paths), np.random.randint(1, 31))
+        num_spawn = np.random.randint(1, 31) if num_spawn is None else num_spawn
+        ids = np.random.randint(0, len(paths), num_spawn)
 
     # index = 0
     for i in ids:
@@ -171,21 +171,36 @@ def spawn_objects(client, ids=None, ycb=False):
 
             success, obj_id = load_obj(client, path, collision_path)
 
-            if not success:
-                print('failed load')
-                # index += 1
-                continue
+            # if not success:
+            #     print('failed load')
+            #     # index += 1
+            #     continue
+
+            # for _ in range(10):
+            #     valid = True
+            #
+            #     for other in obj_ids:
+            #         pos = (np.random.uniform(area[0][0], area[0][1]), np.random.uniform(area[1][0], area[1][1]),
+            #             np.random.uniform(area[2][0], area[2][1]))
+            #         client.resetBasePositionAndOrientation(obj_id, pos, R.random().as_quat())
+            #
+            #         #if len(client.getClosestPoints(obj_id, other, 0)) > 0:
+            #         #    valid = False
+            #         break
+            #
+            #     if valid:
+            #         break
 
             # client.changeVisualShape(obj_id, -1, textureUniqueId=-1)
-            client.changeDynamics(obj_id, -1, lateralFriction=0.5)
+            # client.changeDynamics(obj_id, -1, lateralFriction=0.5)
 
             obj_ids.append(obj_id)
             # index += 1
 
             break
 
-    for _ in range(240 * 5):
-        client.stepSimulation()
+    # for _ in range(240 * 5):
+    #     client.stepSimulation()
 
     return obj_ids
 

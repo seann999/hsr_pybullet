@@ -86,42 +86,49 @@ class HSREnv:
     def __init__(self, connect=p.GUI):
         c_direct = bc.BulletClient(connection_mode=p.DIRECT)
         c_gui = bc.BulletClient(connection_mode=connect)
-
-        c_direct.setGravity(0, 0, -9.8)
-        c_gui.setGravity(0, 0, -9.8)
-
-        p.setAdditionalSearchPath(pybullet_data.getDataPath())
-        planeId = c_gui.loadURDF('plane.urdf')
-        c_gui.changeDynamics(planeId, -1, lateralFriction=0.5)
-
-        px_gui = px.Client(client_id=c_gui._client)
-        self.robot = px.Robot('hsrb_description/robots/hsrb.urdf', use_fixed_base=True, physics_client=px_gui)
-        px_direct = px.Client(client_id=c_direct._client)
-        self.robot_direct = px.Robot('hsrb_description/robots/hsrb.urdf', use_fixed_base=True, physics_client=px_direct)
-
-        c_gui.changeVisualShape(self.robot.id, 15, rgbaColor=(1, 0.5, 0, 1))
-        c_gui.changeVisualShape(self.robot.id, 34, rgbaColor=(0, 1, 0, 1))
-        c_gui.changeVisualShape(self.robot.id, 35, rgbaColor=(1, 0, 0, 1))
-        c_gui.changeVisualShape(self.robot.id, 38, rgbaColor=(1, 0, 1, 1))
-        c_gui.changeVisualShape(self.robot.id, 40, rgbaColor=(0.5, 0, 0.5, 1))
-        c_gui.changeVisualShape(self.robot.id, 44, rgbaColor=(0, 1, 1, 1))
-        c_gui.changeVisualShape(self.robot.id, 46, rgbaColor=(0, 0.5, 0.5, 1))
-
-        self.uppers, self.lowers, self.ranges, self.rest = self.get_robot_info()
-        self.max_vels = self.robot.get_joint_infos()['joint_max_velocity']
-        self.max_forces = self.robot.get_joint_infos()['joint_max_force']
         self.c_gui, self.c_direct = c_gui, c_direct
 
-        vs_id = c_gui.createVisualShape(p.GEOM_SPHERE, radius=0.03, rgbaColor=[1, 0, 0, 1])
-        self.marker_id = c_gui.createMultiBody(basePosition=[0, 0, 0], baseCollisionShapeIndex=-1,
-                                               baseVisualShapeIndex=vs_id)
+        self.c_gui.setAdditionalSearchPath(pybullet_data.getDataPath())
+        self.c_direct.setAdditionalSearchPath(pybullet_data.getDataPath())
+
+        self.reset_env()
 
         self.break_criteria = lambda: False
 
         # print(self.robot.get_joint_infos())
 
-    def get_robot_info(self):
-        joints = self.robot.get_joint_infos()
+    def reset_env(self):
+        self.c_direct.setGravity(0, 0, -9.8)
+        self.c_gui.setGravity(0, 0, -9.8)
+        self.c_direct.setPhysicsEngineParameter(enableFileCaching=0)
+        self.c_gui.setPhysicsEngineParameter(enableFileCaching=0)
+
+        planeId = self.c_gui.loadURDF('plane.urdf')
+        self.c_gui.changeDynamics(planeId, -1, lateralFriction=0.5)
+
+        px_gui = px.Client(client_id=self.c_gui._client)
+        self.robot = px.Robot('hsrb_description/robots/hsrb.urdf', use_fixed_base=True, physics_client=px_gui)
+        px_direct = px.Client(client_id=self.c_direct._client)
+        self.robot_direct = px.Robot('hsrb_description/robots/hsrb.urdf', use_fixed_base=True, physics_client=px_direct)
+
+        self.c_gui.changeVisualShape(self.robot.id, 15, rgbaColor=(1, 0.5, 0, 1))
+        self.c_gui.changeVisualShape(self.robot.id, 34, rgbaColor=(0, 1, 0, 1))
+        self.c_gui.changeVisualShape(self.robot.id, 35, rgbaColor=(1, 0, 0, 1))
+        self.c_gui.changeVisualShape(self.robot.id, 38, rgbaColor=(1, 0, 1, 1))
+        self.c_gui.changeVisualShape(self.robot.id, 40, rgbaColor=(0.5, 0, 0.5, 1))
+        self.c_gui.changeVisualShape(self.robot.id, 44, rgbaColor=(0, 1, 1, 1))
+        self.c_gui.changeVisualShape(self.robot.id, 46, rgbaColor=(0, 0.5, 0.5, 1))
+
+        self.uppers, self.lowers, self.ranges, self.rest = self.get_robot_info(self.robot)
+        self.max_vels = self.robot.get_joint_infos()['joint_max_velocity']
+        self.max_forces = self.robot.get_joint_infos()['joint_max_force']
+
+        vs_id = self.c_gui.createVisualShape(p.GEOM_SPHERE, radius=0.03, rgbaColor=[1, 0, 0, 1])
+        self.marker_id = self.c_gui.createMultiBody(basePosition=[0, 0, 0], baseCollisionShapeIndex=-1,
+                                               baseVisualShapeIndex=vs_id)
+
+    def get_robot_info(self, robot):
+        joints = robot.get_joint_infos()
         names = joints['joint_name']
         print(list(enumerate(names)))
         # print(self.robot.get_joint_infos(range(self.robot.num_joints)))
@@ -490,11 +497,6 @@ class GraspEnv:
         self.obj_ids = []
         # self.obj_ids = eu.spawn_ycb(self.env.c_gui)#, ids=list(range(n_objects)))
 
-        if setup_room:
-            self.furn_ids = self.generate_room()
-        else:
-            self.furn_ids = []
-
         self.res = 224
         self.px_size = 3.0 / self.res
         self.num_rots = 16
@@ -527,8 +529,17 @@ class GraspEnv:
         self.spawn_radius = 3
 
         self.steps = 0
+        self.ep_counter = 0
 
         self.object_collision, self.furniture_collision = False, False
+
+        self.reset_env()
+
+    def reset_env(self):
+        # if setup_room:
+        self.furn_ids = self.generate_room()
+        # else:
+        #    self.furn_ids = []
 
         def wrapper(fn):
             def wrapper():
@@ -647,18 +658,26 @@ class GraspEnv:
 
     def reset(self):
         self.ep_start_time = time.time()
+        self.ep_counter += 1
+
+        if self.ep_counter % 10 == 0:
+            self.env.c_gui.resetSimulation()
+            self.env.c_direct.resetSimulation()
+            self.obj_ids = []
+            self.env.reset_env()
+            self.reset_env()
 
         for obj in self.obj_ids:
             self.env.c_gui.removeBody(obj)
 
-        self.obj_ids = eu.spawn_objects(self.env.c_gui)
+        self.obj_ids = eu.spawn_objects(self.env.c_gui, num_spawn=np.random.randint(1, 31))
 
         for id in self.obj_ids:
             self.env.c_gui.resetBasePositionAndOrientation(id, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
             self.env.c_gui.changeDynamics(id, -1, mass=0)
 
-        num_objs = np.random.randint(1, 30)
-        selected = np.random.permutation(self.obj_ids)[:num_objs]
+        # num_objs = np.random.randint(1, 30)
+        selected = np.random.permutation(self.obj_ids)# [:num_objs]
 
         self.env.reset_pose()
 
@@ -669,24 +688,24 @@ class GraspEnv:
         }, sim=False)
 
         for i, id in enumerate(selected):
-            if self.spawn_mode == 'box':
-                x = np.random.uniform(self.spawn_box[0][0], self.spawn_box[1][0])
-                y = np.random.uniform(self.spawn_box[0][1], self.spawn_box[1][1])
-                z = np.random.uniform(self.spawn_box[0][2], self.spawn_box[1][2])
-            else:
-                theta = np.random.uniform(0, 2.0 * np.pi)
-                dist = np.random.uniform(0.5, self.spawn_radius)
-                x, y = np.cos(theta) * dist, np.sin(theta) * dist
-                z = np.random.uniform(0.4, 0.6)
-
-            pos = (x, y, z)
-            # pos = self.pos[i]
-
             for t in range(10):
+                if self.spawn_mode == 'box':
+                    x = np.random.uniform(self.spawn_box[0][0], self.spawn_box[1][0])
+                    y = np.random.uniform(self.spawn_box[0][1], self.spawn_box[1][1])
+                    z = np.random.uniform(self.spawn_box[0][2], self.spawn_box[1][2])
+                else:
+                    theta = np.random.uniform(0, 2.0 * np.pi)
+                    dist = np.random.uniform(0.5, self.spawn_radius)
+                    x, y = np.cos(theta) * dist, np.sin(theta) * dist
+                    z = np.random.uniform(0.4, 0.6)
+
+                pos = (x, y, z)
+
                 self.env.c_gui.resetBasePositionAndOrientation(id, pos, R.random().as_quat())
                 valid = True
 
-                if len(self.env.c_gui.getClosestPoints(id, self.env.robot.id, 0)) > 0:
+                if len(self.env.c_gui.getClosestPoints(id, self.env.robot.id, 0)) > 0\
+                        or any([len(self.env.c_gui.getClosestPoints(id, fid, 0)) > 0 for fid in self.furn_ids]):
                     valid = False
                 else:
                     for prev in selected[:i]:
@@ -697,7 +716,7 @@ class GraspEnv:
                 if valid:
                     break
 
-            self.env.c_gui.changeDynamics(id, -1, mass=0.1)
+            self.env.c_gui.changeDynamics(id, -1, mass=0.1, lateralFriction=0.5)
 
         # print('settle')
         x = [self.env.c_gui.getBasePositionAndOrientation(i)[0] for i in selected]
