@@ -25,10 +25,17 @@ class SegData:
         return len(self.files)
 
     def __getitem__(self, idx):
-        hmap = cv2.imread(os.path.join(self.root, self.files[idx], 'hmap.png'), -1) / 1000.0
-        hmap = hmap.astype(np.float32)[None]
+        hmap = cv2.imread(os.path.join(self.root, self.files[idx], 'hmap.png'), -1)
+
+        angle = np.random.randint(low=0, high=360)
+        image_center = (112, 112)
+        rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
+        hmap = cv2.warpAffine(hmap, rot_mat, (224, 224))
+
+        hmap = (hmap / 1000.0).astype(np.float32)[None]
         gtmap = cv2.imread(os.path.join(self.root, self.files[idx], 'maskmap.png'))[:, :, 0] > 0
         gtmap = gtmap.astype(np.float32)
+        gtmap = cv2.warpAffine(gtmap, rot_mat, (224, 224))
 
         return hmap, gtmap
 
@@ -58,7 +65,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
 
 train_losses, val_losses = [], []
 
-for ep in range(31):
+for ep in range(101):
     total_loss = 0
     model.train()
 
