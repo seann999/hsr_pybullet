@@ -35,7 +35,8 @@ class SegData:
 
 def create_fig(y_hat, y):
     fig, ax = plt.subplots(3, 8)
-    y_hat = F.sigmoid(y_hat).detach().cpu().numpy()
+    #y_hat = F.sigmoid(y_hat).detach().cpu().numpy()
+    y_hat = y_hat.detach().cpu().numpy()
     y = y.cpu().numpy()
 
     for i in range(8):
@@ -64,7 +65,8 @@ for ep in range(30):
     for i, (x, y) in enumerate(train_loader):
         y_hat = model.forward(phi(x).cuda())
         y = y.unsqueeze(1).cuda()
-        loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
+        #loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
+        loss = (y_hat - y).pow(2).sum(3).sum(2).sum(1).mean()
 
         optimizer.zero_grad()
         loss.backward()
@@ -91,7 +93,8 @@ for ep in range(30):
     for i, (x, y) in enumerate(val_loader):
         y_hat = model.forward(phi(x).cuda())
         y = y.unsqueeze(1).cuda()
-        loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
+        #loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
+        loss = (y_hat - y).pow(2).sum(3).sum(2).sum(1).mean()
 
         loss = loss.cpu().detach().numpy()
         total_loss += loss
