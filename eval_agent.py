@@ -66,7 +66,7 @@ if __name__ == '__main__':
             agent.load(args.model)
 
     print('>>>>>starting eval')
-    max_episode_len = 100
+    max_episode_len = 30
     n_episodes = 100
 
     config = {
