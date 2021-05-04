@@ -17,7 +17,8 @@ from train_agent import QFCN, phi
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--agent', type=str, default='random')
-    parser.add_argument('--model', type=str, default='result/test04/best')
+    parser.add_argument('--model', type=str, default=None)
+    parser.add_argument('--pretrain', type=str, default=None)
     parser.add_argument('--show-hmap', action='store_true')
     parser.add_argument('--debug-agent', action='store_true')
     parser.add_argument('--gui', action='store_true')
@@ -46,7 +47,7 @@ if __name__ == '__main__':
     elif agent_type == 'random':
         pass
     else:
-        q_func = QFCN(debug=args.debug_agent)
+        q_func = QFCN(debug=args.debug_agent, pretrain=args.pretrain)
         replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6)
 
         gpu = 0
@@ -61,7 +62,8 @@ if __name__ == '__main__':
             phi=phi
         )
 
-        agent.load(args.model)
+        if args.model is not None:
+            agent.load(args.model)
 
     print('>>>>>starting eval')
     max_episode_len = 100

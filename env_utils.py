@@ -97,20 +97,23 @@ def get_heightmaps(client, configs, bounds=None, return_seg=False, px_size=0.003
     return heightmaps, colormaps, segmaps#, rgbs, depths, segs
 
 
-def load_obj(client, mesh_path, collision_path, area=[[0.5, 3.0], [-1.5, 1.5], [0.4, 0.6]]):
+def load_obj(client, mesh_path, collision_path, rand_scale=True, area=[[0.5, 3.0], [-1.5, 1.5], [0.4, 0.6]]):
     name_log = 'log.txt'
 
     mesh = trimesh.load(mesh_path, force='mesh', process=False)
 
-    assert len(mesh.split()) == 1 and mesh.is_watertight
+    # assert len(mesh.split()) == 1 and mesh.is_watertight
 
     if not os.path.exists(collision_path):
         p.vhacd(mesh_path, collision_path, name_log)
 
-    max_side = max(mesh.extents)
-    scale = np.random.uniform(0.06, 0.35) / max_side
+    if rand_scale:
+        max_side = max(mesh.extents)
+        scale = np.random.uniform(0.06, 0.35) / max_side
+        mesh.apply_scale(scale)
+    else:
+        scale = 1
 
-    mesh.apply_scale(scale)
     scale = [scale, scale, scale]
 
     viz_shape_id = client.createVisualShape(
@@ -142,11 +145,11 @@ def load_obj(client, mesh_path, collision_path, area=[[0.5, 3.0], [-1.5, 1.5], [
     return True, obj_id
 
 
-def spawn_objects(client, ids=None, ycb=False, num_spawn=None):
+def spawn_objects(client, ids=None, ycb=True, num_spawn=None):
     if ycb:
-        paths = sorted([x for x in os.listdir('ycb') if os.path.isdir('ycb/{}'.format(x))])
+        paths = sorted([x for x in os.listdir('assets/ycb') if os.path.isdir('assets/ycb/{}'.format(x))])
     else:
-        paths = sorted([x for x in os.listdir('shapenetsem/original') if x.endswith('.obj')])
+        paths = sorted([x for x in os.listdir('assets/shapenetsem/original') if x.endswith('.obj')])
 
     obj_ids = []
     area = [[0.5, 3.0], [-1.5, 1.5], [0.4, 0.6]]
@@ -163,13 +166,13 @@ def spawn_objects(client, ids=None, ycb=False, num_spawn=None):
             x = paths[i]#random.choice(paths)
 
             if ycb:
-                path = 'ycb/{}/google_16k/nontextured.stl'.format(x)
-                collision_path = 'ycb/{}/google_16k/collision.obj'.format(x)
+                path = 'assets/ycb/{}/google_16k/nontextured.stl'.format(x)
+                collision_path = 'assets/ycb/{}/google_16k/collision.obj'.format(x)
+                success, obj_id = load_obj(client, path, collision_path, rand_scale=False)
             else:
-                path = 'shapenetsem/original/{}'.format(x)
-                collision_path = 'shapenetsem/collision/{}'.format(x)
-
-            success, obj_id = load_obj(client, path, collision_path)
+                path = 'assets/shapenetsem/original/{}'.format(x)
+                collision_path = 'assets/shapenetsem/collision/{}'.format(x)
+                success, obj_id = load_obj(client, path, collision_path)
 
             # if not success:
             #     print('failed load')
