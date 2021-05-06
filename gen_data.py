@@ -12,6 +12,7 @@ import argparse
 import cv2
 import numpy as np
 from multiprocessing import Pool
+import json
 
 
 def generate(seed, indices, args):
@@ -26,10 +27,11 @@ def generate(seed, indices, args):
         obs = env.reset()
 
         segmap = env.segmap
-        maskmap = np.logical_or.reduce([segmap[:, :, 0] == id for id in env.obj_ids])
+        # maskmap = np.logical_or.reduce([segmap[:, :, 0] == id for id in env.obj_ids])
+        # maskmap = np.logical_or.reduce([segmap[:, :, 0] == id for id in [env.furn_ids[11], env.furn_ids[12]]])
 
         if args.show_maps:
-            cv2.imshow('maskmap', np.uint8(maskmap / maskmap.max() * 255))
+            # cv2.imshow('maskmap', np.uint8(maskmap / maskmap.max() * 255))
             cv2.imshow('hmap', np.uint8(obs[0] / obs[0].max() * 255))
             cv2.waitKey(1)
 
@@ -45,8 +47,13 @@ def generate(seed, indices, args):
         cv2.imwrite(os.path.join(d, 'seg.png'), env.seg)
         cv2.imwrite(os.path.join(d, 'cmap.png'), env.cmap[:, :, ::-1])
         cv2.imwrite(os.path.join(d, 'hmap.png'), np.uint16(obs[0] * 1000))
-        cv2.imwrite(os.path.join(d, 'maskmap.png'), np.uint8(maskmap) * 255)
+        # cv2.imwrite(os.path.join(d, 'maskmap.png'), np.uint8(maskmap) * 255)
         cv2.imwrite(os.path.join(d, 'segmap.png'), segmap[:, :, 0])
+
+        json.dump({
+            'furn_ids': env.furn_ids,
+            'obj_ids': env.obj_ids,
+        }, open(os.path.join(d, 'ids.json'), 'w'))
 
     print('Finished.')
 
@@ -55,8 +62,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--gui', action='store_true')
     parser.add_argument('--show-maps', action='store_true')
+    parser.add_argument('--workers', type=int, default=8)
     args = parser.parse_args()
 
-    pool = Pool(8)
-    indices = np.array_split(range(10000), 8)
+    pool = Pool(args.workers)
+    indices = np.array_split(range(10000), args.workers)
     result = pool.starmap(generate, [(i, idx, args) for i, idx in enumerate(indices)])

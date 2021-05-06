@@ -3,6 +3,7 @@ import pybullet as p
 import pybullet_utils.bullet_client as bc
 import pybullet_data
 import pybulletX as px
+import random
 
 from scipy.spatial.transform import Rotation as R
 import numpy as np
@@ -27,6 +28,12 @@ CAMERA_XTION_CONFIG = [{
     'noise': False
 }]
 
+POSE_HOLDING = {
+    'head_tilt_joint': np.pi * -0.25,
+    'arm_roll_joint': np.pi * 0.5,
+    'wrist_flex_joint': np.pi * -0.5,
+}
+
 # hand palm link to hand cam
 #([0.03897505473979222, -0.015070500210564188, -0.004196379764539657], [-0.04207608800145346, -0.040159067991881625, 0.7057767579836123, 0.7060424662969788])
 # realsense intrinsics
@@ -36,6 +43,7 @@ CAMERA_XTION_CONFIG = [{
 def set_joint_position(client, robot, joint_position, max_forces=None, use_joint_effort_limits=True):
     vels = robot.get_joint_infos()['joint_max_velocity']
     force = robot.get_joint_infos()['joint_max_force']
+    joint2idx = {j.decode('utf-8'): i for i, j in enumerate(robot.get_joint_infos()['joint_name'])}
     robot.torque_control = False
 
     assert not np.all(np.array(max_forces) == 0), "max_forces can't be all zero"
@@ -64,15 +72,21 @@ def set_joint_position(client, robot, joint_position, max_forces=None, use_joint
             # Case 4
             opts["forces"] = max_forces
 
-    assert len(robot.free_joint_indices) == len(joint_position) or len(robot.free_joint_indices) - 4 == len(
-        joint_position), (
-        f"number of target positions ({len(joint_position)}) should match "
-        f"the number of joint indices ({len(robot.free_joint_indices)})"
-    )
+    if isinstance(joint_position, dict):
+        for k, v in joint_position.items():
+            i = joint2idx[k]
+            client.setJointMotorControl2(robot.id, robot.free_joint_indices[i], p.POSITION_CONTROL,
+                                         targetPosition=v, maxVelocity=vels[i], force=force[i])
+    else:
+        assert len(robot.free_joint_indices) == len(joint_position) or len(robot.free_joint_indices) - 4 == len(
+            joint_position), (
+            f"number of target positions ({len(joint_position)}) should match "
+            f"the number of joint indices ({len(robot.free_joint_indices)})"
+        )
 
-    for i in range(len(joint_position)):
-        client.setJointMotorControl2(robot.id, robot.free_joint_indices[i], p.POSITION_CONTROL,
-                                     targetPosition=joint_position[i], maxVelocity=vels[i], force=force[i])
+        for i in range(len(joint_position)):
+            client.setJointMotorControl2(robot.id, robot.free_joint_indices[i], p.POSITION_CONTROL,
+                                         targetPosition=joint_position[i], maxVelocity=vels[i], force=force[i])
 
 
 def pose2mat(pos, orn):
@@ -110,6 +124,7 @@ class HSREnv:
         self.robot = px.Robot('hsrb_description/robots/hsrb.urdf', use_fixed_base=True, physics_client=px_gui)
         px_direct = px.Client(client_id=self.c_direct._client)
         self.robot_direct = px.Robot('hsrb_description/robots/hsrb.urdf', use_fixed_base=True, physics_client=px_direct)
+        self.joint2idx = {j.decode('utf-8'):i for i, j in enumerate(self.robot.get_joint_infos()['joint_name'])}
 
         self.c_gui.changeVisualShape(self.robot.id, 15, rgbaColor=(1, 0.5, 0, 1))
         self.c_gui.changeVisualShape(self.robot.id, 34, rgbaColor=(0, 1, 0, 1))
@@ -290,34 +305,28 @@ class HSREnv:
         for joint_index, joint_angle in zip(robot.free_joint_indices, q):
             client.resetJointState(robot.id, joint_index, joint_angle)
 
-    def holding_config(self):
-        q = [0 for _ in self.robot.get_states()['joint_position']]
-
-        # arm joints
-        q[5] = np.pi * -0.25
-        q[8] = np.pi * 0.5
-        q[9] = -np.pi * 0.5
-
-        return q
-
     def reset_pose(self):
-        neutral = self.holding_config()
+        neutral = [0 for _ in self.robot.get_states()['joint_position']]
         neutral[0] = np.random.uniform(-2, -1)# q[0]
         neutral[1] = np.random.uniform(-1, 1)# q[1]
         # neutral[2] = q[2]
+        for k, v in POSE_HOLDING.items():
+            neutral[self.joint2idx[k]] = v
 
         self.reset_joints(neutral, True)
         self.set_joint_position(neutral, True)
 
-    def holding_pose(self):
-        curr_q = list(self.robot.get_states()['joint_position'])
-        q = self.holding_config()
+    def move_arm(self, config, fill=True):
+        if fill:
+            for k, v in self.joint2idx.items():
+                if 3 <= v <= 10 and k not in config:
+                    config[k] = 0
 
-        for i in [0, 1, 2]:
-            q[i] = curr_q[i]
-
-        self.set_joint_position(q, True)
+        self.set_joint_position(config, True)
         self.steps()
+
+    def holding_pose(self):
+        self.move_arm(POSE_HOLDING)
 
     def steps(self, steps=240 * 10, finger_steps=240, stop_at_stop=True, stop_at_contact=False):
         prev = self.robot.get_states()['joint_position']
@@ -493,6 +502,7 @@ DEFAULT_CONFIG = {
 class GraspEnv:
     def __init__(self, n_objects=70, config=DEFAULT_CONFIG, setup_room=True, **kwargs):
         self.env = HSREnv(**kwargs)
+        self.reset_interval = 1
 
         self.obj_ids = []
         # self.obj_ids = eu.spawn_ycb(self.env.c_gui)#, ids=list(range(n_objects)))
@@ -565,7 +575,9 @@ class GraspEnv:
         self.env.c_gui.stepSimulation = wrapper(self.env.c_gui.stepSimulation)
         self.env.break_criteria = break_criteria
 
-    def generate_room(self):
+    def generate_room(self, drawers_open=True):
+        random_containers = True
+        rot_noise = np.pi / 180 * 5
         ids = []
 
         x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_frame/model.sdf')[0]
@@ -576,13 +588,16 @@ class GraspEnv:
         self.env.c_gui.resetBasePositionAndOrientation(x, (2.7, -1, 0), p.getQuaternionFromEuler([0, 0, -1.57]))
         ids.append(x)
 
+        pos_noise = 0.05
         x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_bin_black/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, -1.7, 0), (0, 0, 0, 1))
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -1.7 + np.random.uniform(-1, 1) * pos_noise, 0),
+                                                       p.getQuaternionFromEuler([0, 0, np.random.uniform(-1, 1) * rot_noise]))
         self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.3, 1))
         ids.append(x)
 
         x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_bin_green/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, -1.2, 0), (0, 0, 0, 1))
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -1.2 + np.random.uniform(-1, 1) * pos_noise, 0),
+                                                       p.getQuaternionFromEuler([0, 0, np.random.uniform(-1, 1) * rot_noise]))
         self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0, 0.7, 0, 1))
         ids.append(x)
 
@@ -590,50 +605,58 @@ class GraspEnv:
         self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, 1, 0), (0, 0, 0, 1))
         ids.append(x)
 
+        pull_noise = 0.05
         x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/trofast_knob/model-1_4.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, 0.67, 0.1 + 0.115), (0, 0, 0, 1))
+        pull = (-2.4 if drawers_open else -2.7) + np.random.uniform(-1, 1) * pull_noise
+        self.env.c_gui.resetBasePositionAndOrientation(x, (pull, 0.67, 0.1 + 0.115), (0, 0, 0, 1))
         self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(1, 0.5, 0, 1))
         ids.append(x)
 
         x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/trofast_knob/model-1_4.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, 1, 0.1 + 0.115), (0, 0, 0, 1))
+        pull = (-2.4 if drawers_open else -2.7) + np.random.uniform(-1, 1) * pull_noise
+        self.env.c_gui.resetBasePositionAndOrientation(x, (pull, 1, 0.1 + 0.115), (0, 0, 0, 1))
         self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(1, 0.5, 0, 1))
         ids.append(x)
 
         x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/trofast_knob/model-1_4.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, 1, 0.36 + 0.115), (0, 0, 0, 1))
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pull_noise, 1, 0.36 + 0.115), (0, 0, 0, 1))
         self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(1, 0.5, 0, 1))
         ids.append(x)
 
         x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_tall_table/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-0.3, 1.2, 0), (0, 0, 0, 1))
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-0.3 + np.random.uniform(-1, 1) * pos_noise, 1.2 + np.random.uniform(-1, 1) * pos_noise, 0), p.getQuaternionFromEuler([0, 0, np.random.uniform(-1, 1) * rot_noise]))
         ids.append(x)
 
         x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_long_table/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-0.3, 0.2, 0), p.getQuaternionFromEuler([0, 0, 1.57]))
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-0.3 + np.random.uniform(-1, 1) * pos_noise, 0.2 + np.random.uniform(-1, 1) * pos_noise, 0), p.getQuaternionFromEuler([0, 0, 1.57 + np.random.uniform(-1, 1) * rot_noise]))
         ids.append(x)
 
         x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_long_table/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, -0.3, 0), p.getQuaternionFromEuler([0, 0, 1.57]))
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.3 + np.random.uniform(-1, 1) * pos_noise, 0), p.getQuaternionFromEuler([0, 0, 1.57 + np.random.uniform(-1, 1) * rot_noise]))
         ids.append(x)
 
-        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_tray/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, -0.75, 0.4), p.getQuaternionFromEuler([0, 0, 1.57]))
+        pos_noise = 0.03
+        x = eu.load_container(self.env.c_gui) if random_containers else self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_tray/model.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.75 + np.random.uniform(-1, 1) * pos_noise, 0.4),
+                                                       p.getQuaternionFromEuler([0, 0, 1.57 + np.random.uniform(-1, 1) * rot_noise]))
         self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.3, 1))
         ids.append(x)
 
-        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_tray/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, -0.45, 0.4), p.getQuaternionFromEuler([0, 0, 1.57]))
+        x = eu.load_container(self.env.c_gui) if random_containers else self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_tray/model.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.45 + np.random.uniform(-1, 1) * pos_noise, 0.4),
+                                                       p.getQuaternionFromEuler([0, 0, 1.57 + np.random.uniform(-1, 1) * rot_noise]))
         self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.3, 1))
         ids.append(x)
 
-        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_container_a/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, -0.2, 0.4), (0, 0, 0, 1))
+        x = eu.load_container(self.env.c_gui, shape='left container') if random_containers else self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_container_a/model.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.2 + np.random.uniform(-1, 1) * pos_noise, 0.4),
+                                                       p.getQuaternionFromEuler([0, 0, np.random.uniform(-1, 1) * rot_noise]))
         self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.8, 0.0, 0.0, 1))
         ids.append(x)
 
-        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_container_b/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, 0.1, 0.4), (0, 0, 0, 1))
+        x = eu.load_container(self.env.c_gui, shape='right container') if random_containers else self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_container_b/model.sdf')[0]
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, 0.1 + np.random.uniform(-1, 1) * pos_noise, 0.4),
+                                                       p.getQuaternionFromEuler([0, 0, np.random.uniform(-1, 1) * rot_noise]))
         self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.2, 1))
         ids.append(x)
 
@@ -660,7 +683,7 @@ class GraspEnv:
         self.ep_start_time = time.time()
         self.ep_counter += 1
 
-        if self.ep_counter % 10 == 0:
+        if self.ep_counter % self.reset_interval == 0:
             self.env.c_gui.resetSimulation()
             self.env.c_direct.resetSimulation()
             self.obj_ids = []
@@ -688,33 +711,45 @@ class GraspEnv:
         }, sim=False)
 
         for i, id in enumerate(selected):
-            for t in range(10):
-                if self.spawn_mode == 'box':
-                    x = np.random.uniform(self.spawn_box[0][0], self.spawn_box[1][0])
-                    y = np.random.uniform(self.spawn_box[0][1], self.spawn_box[1][1])
-                    z = np.random.uniform(self.spawn_box[0][2], self.spawn_box[1][2])
-                else:
-                    theta = np.random.uniform(0, 2.0 * np.pi)
-                    dist = np.random.uniform(0.5, self.spawn_radius)
-                    x, y = np.cos(theta) * dist, np.sin(theta) * dist
-                    z = np.random.uniform(0.4, 0.6)
+            if i == 1 and np.random.random() < 0.5:
+                self.env.c_gui.resetBasePositionAndOrientation(id, [-2.7, -0.75, 0.6], R.random().as_quat())
+            elif i == 2 and np.random.random() < 0.5:
+                self.env.c_gui.resetBasePositionAndOrientation(id, [-2.7, -0.45, 0.6], R.random().as_quat())
+            elif np.random.random() < 0.1:
+                c = random.choice([0, 1, 2, 3])
 
-                pos = (x, y, z)
+                if c == 0:
+                    self.env.c_gui.resetBasePositionAndOrientation(id, [-2.7, -1.7, 0.4], R.random().as_quat())
+                elif c == 1:
+                    self.env.c_gui.resetBasePositionAndOrientation(id, [-2.7, -1.2, 0.4], R.random().as_quat())
+            else:
+                for t in range(10):
+                    if self.spawn_mode == 'box':
+                        x = np.random.uniform(self.spawn_box[0][0], self.spawn_box[1][0])
+                        y = np.random.uniform(self.spawn_box[0][1], self.spawn_box[1][1])
+                        z = np.random.uniform(self.spawn_box[0][2], self.spawn_box[1][2])
+                    else:
+                        theta = np.random.uniform(0, 2.0 * np.pi)
+                        dist = np.random.uniform(0.5, self.spawn_radius)
+                        x, y = np.cos(theta) * dist, np.sin(theta) * dist
+                        z = np.random.uniform(0.4, 0.6)
 
-                self.env.c_gui.resetBasePositionAndOrientation(id, pos, R.random().as_quat())
-                valid = True
+                    pos = (x, y, z)
 
-                if len(self.env.c_gui.getClosestPoints(id, self.env.robot.id, 0)) > 0\
-                        or any([len(self.env.c_gui.getClosestPoints(id, fid, 0)) > 0 for fid in self.furn_ids]):
-                    valid = False
-                else:
-                    for prev in selected[:i]:
-                        if len(self.env.c_gui.getClosestPoints(id, prev, 0)) > 0:
-                            valid = False
-                            break
+                    self.env.c_gui.resetBasePositionAndOrientation(id, pos, R.random().as_quat())
+                    valid = True
 
-                if valid:
-                    break
+                    if len(self.env.c_gui.getClosestPoints(id, self.env.robot.id, 0)) > 0\
+                            or any([len(self.env.c_gui.getClosestPoints(id, fid, 0)) > 0 for fid in self.furn_ids]):
+                        valid = False
+                    else:
+                        for prev in selected[:i]:
+                            if len(self.env.c_gui.getClosestPoints(id, prev, 0)) > 0:
+                                valid = False
+                                break
+
+                    if valid:
+                        break
 
             self.env.c_gui.changeDynamics(id, -1, mass=0.1, lateralFriction=0.5)
 
@@ -769,6 +804,41 @@ class GraspEnv:
     def set_seed(self, idx):
         self.seed = idx
         np.random.seed(idx)
+
+    def place_object(self, offset_z=0):
+        base_locs = {
+            'right_tray': [-2.2, -0.4],
+            'left_tray': [-2.2, -0.7],
+            'right_bin': [-2.2, -1.2],
+            'left_bin': [-2.2, -1.65],
+            'right_drawer': [-1.8, 0.7],
+            'left_drawer': [-1.8, 1.0],
+        }
+        base_x, base_y = random.choice(list(base_locs.values()))
+
+        self.env.move_base(base_x, base_y, np.pi)
+
+        self.env.move_arm({
+            'arm_flex_joint': -np.pi * 0.25,
+            'arm_lift_joint': 0.4,
+        })
+        # self.env.move_arm({
+        #     'arm_flex_joint': -np.pi * 0.5,
+        #     'wrist_flex_joint': -np.pi * 0.5,
+        # }, fill=False)
+
+        # input('ok?')
+
+        down = p.getQuaternionFromEuler([np.pi, 0, 0])
+        pos = np.array([base_x - 0.5, base_y, 0.65 + offset_z])
+        self.env.move_ee(pos + np.array([0, 0, 0.1]), down)
+        # input('ok?')
+        self.env.move_ee(pos, down)
+        # input('ok?')
+
+        self.env.open_gripper()
+        self.env.move_ee(pos + np.array([0, 0, 0.1]), down)
+        self.env.holding_pose()
 
     def step(self, action):
         action_type = None
@@ -847,8 +917,9 @@ class GraspEnv:
                                 break
 
                     if grasp_success:
-                        self.env.c_gui.resetBasePositionAndOrientation(obj, (-100, np.random.uniform(-100, 100), -100),
-                                                                       (0, 0, 0, 1))
+                        self.place_object()
+                        #self.env.c_gui.resetBasePositionAndOrientation(obj, (-100, np.random.uniform(-100, 100), -100),
+                        #                                               (0, 0, 0, 1))
 
                 reward = 1 if grasp_success else -0.1
 

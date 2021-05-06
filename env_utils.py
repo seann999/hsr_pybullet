@@ -13,6 +13,7 @@ import pybullet as p
 import numpy as np
 import ravens.utils.utils as ru
 import numba
+import glob
 
 
 def render_camera(client, config):
@@ -206,6 +207,72 @@ def spawn_objects(client, ids=None, ycb=True, num_spawn=None):
     #     client.stepSimulation()
 
     return obj_ids
+
+
+def load_container(client, shape='tray'):
+    folder = 'tray' if shape == 'tray' else 'basket'
+    fn = random.choice(glob.glob('assets/containers/{}/obj/*/*.obj'.format(folder)))
+    what = 'assets/containers/{}/processed/'.format(folder) + fn.split('/')[-1]
+
+    if not os.path.exists(what):
+        mesh = trimesh.load(fn, force='mesh', process=False)
+        mesh2 = trimesh.load(fn, force='mesh', process=False)
+        mesh2.invert()
+
+        mesh = trimesh.util.concatenate(mesh, mesh2)
+        t = np.eye(4)
+        t[:3, :3] = R.from_euler('xyz', [0.5 * np.pi, 0, 0]).as_matrix()
+        mesh.apply_transform(t)
+
+        t = np.eye(4)
+        offset = -mesh.bounds.mean(0)
+        offset[2] = -mesh.bounds[0, 2]
+        t[:3, -1] = offset
+        mesh.apply_transform(t)
+
+        mesh.export(what)
+    else:
+        mesh = trimesh.load(what, force='mesh', process=False)
+
+    if shape == 'tray':
+        target_extents = np.array([np.random.uniform(0.2, 0.3), np.random.uniform(0.3, 0.4), np.random.uniform(0.01, 0.03)])
+    elif shape == 'left container':
+        target_extents = np.array(
+            [np.random.uniform(0.05, 0.15), np.random.uniform(0.05, 0.15), np.random.uniform(0.05, 0.15)])
+    else:
+        target_extents = np.array(
+            [np.random.uniform(0.15, 0.30), np.random.uniform(0.15, 0.30), np.random.uniform(0.10, 0.15)])
+
+    s = target_extents / mesh.extents
+    # s = 0.37 / max(mesh.extents)
+    # s = [s, s, s]
+
+    collision_path = what[:-4] + '_c.obj'
+    if not os.path.exists(collision_path):
+        p.vhacd(what, collision_path, 'log.txt')
+
+    f = what
+    viz_shape_id = client.createVisualShape(
+        shapeType=p.GEOM_MESH,
+        fileName=f, meshScale=s,
+    )
+
+    col_shape_id = client.createCollisionShape(
+        shapeType=p.GEOM_MESH,
+        fileName=collision_path, meshScale=s,
+    )
+
+    obj_id = client.createMultiBody(
+        baseMass=0,
+        basePosition=(0, 0, 0),
+        baseCollisionShapeIndex=col_shape_id,
+        baseVisualShapeIndex=viz_shape_id,
+        baseOrientation=(0, 0, 0, 1),
+    )
+
+    client.changeVisualShape(obj_id, -1, rgbaColor=(1, 1, 1, 1), textureUniqueId=-1)
+
+    return obj_id
 
 
 # Read about the noise model here: http://www.alexteichman.com/octo/clams/
