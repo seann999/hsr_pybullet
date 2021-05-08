@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import os
 import torch
+import json
 
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split
@@ -33,7 +34,10 @@ class SegData:
         hmap = cv2.warpAffine(hmap, rot_mat, (224, 224))
 
         hmap = (hmap / 1000.0).astype(np.float32)[None]
-        gtmap = cv2.imread(os.path.join(self.root, self.files[idx], 'maskmap.png'))[:, :, 0] > 0
+        #gtmap = cv2.imread(os.path.join(self.root, self.files[idx], 'maskmap.png'))[:, :, 0] > 0
+        segmap = cv2.imread(os.path.join(self.root, self.files[idx], 'segmap.png'))[:, :, 0]
+        info = json.load(open(os.path.join(self.root, self.files[idx], 'ids.json'), 'r'))['furn_ids']
+        gtmap = np.logical_or.reduce([segmap == info[i] for i in [11, 12, 13, 14]])
         gtmap = gtmap.astype(np.float32)
         gtmap = cv2.warpAffine(gtmap, rot_mat, (224, 224))
 
@@ -57,7 +61,7 @@ def create_fig(y_hat, y):
     return fig
 
 model = FCN(num_rotations=1)
-train_loader = DataLoader(SegData(True), batch_size=32, num_workers=8, shuffle=True, pin_memory=True, drop_last=True)
+train_loader = DataLoader(SegData(True), batch_size=64, num_workers=8, shuffle=True, pin_memory=True, drop_last=True)
 val_loader = DataLoader(SegData(False), batch_size=8, num_workers=8, shuffle=True, pin_memory=True, drop_last=True)
 
 model.cuda()
