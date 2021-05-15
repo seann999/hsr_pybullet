@@ -55,8 +55,8 @@ class QFCN(nn.Module):
 
         rots = 16
 
-        self.grasp_model = FCN(rots)
-        self.look_model = FCN(1)
+        self.grasp_model = FCN(rots, use_fc=True, fast=True)
+        self.look_model = FCN(1, fast=True)
         self.debug = debug
 
         if pretrain:
@@ -66,12 +66,6 @@ class QFCN(nn.Module):
         # print('inference:', x.shape)
         bs = len(x)
         out = self.grasp_model(x)
-
-        out = torch.stack(out)  # R x N x 1 x H x W
-        out = out.squeeze(2)  # R x N x H x W
-
-        out = out.permute(1, 0, 2, 3)  # N x R x H x W
-
         look_out = self.look_model(x)
 
         if self.debug:
@@ -104,7 +98,7 @@ def phi(x):
 
 
 def make_env(idx, config):
-    env = GraspEnv(connect=p.DIRECT, config=config)
+    env = GraspEnv(connect=p.DIRECT, config=config, reset_interval=5)
     env.set_seed(idx)
     return env
 

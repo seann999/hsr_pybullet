@@ -9,11 +9,14 @@ from self_attention_cv import ViT
 import resnet
 
 class FCN(nn.Module):
-    def __init__(self, num_rotations=16):
+    def __init__(self, num_rotations=16, use_fc=False, fast=False, debug=False):
         super().__init__()
 
         self.num_rotations = num_rotations
         self.use_cuda = True
+        self.use_fc = use_fc
+        self.debug = debug
+        self.fast = fast
 
         #modules = list(models.resnet18().children())[:-5]
         #self.backbone = nn.Sequential(*modules)
@@ -21,8 +24,10 @@ class FCN(nn.Module):
         #backbone = resnet.resnet18(num_input_channels=3, num_classes=1)
         #self.resnet.cuda()
         #self.backbone = backbone.features
-        self.end = nn.Sequential(
-            nn.Conv2d(512 if num_rotations==1 else 512, 128, 1, 1),
+        
+        def decoder(n, out):
+          return nn.Sequential(
+            nn.Conv2d(n, 128, 1, 1),
             nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.UpsamplingBilinear2d(scale_factor=2),
@@ -30,8 +35,32 @@ class FCN(nn.Module):
             nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.UpsamplingBilinear2d(scale_factor=2),
-            nn.Conv2d(32, 1, 1, 1),
+            nn.Conv2d(32, out, 1, 1),
+          )
+        self.end = decoder(512, num_rotations if fast else 1)
+
+        #self.p_decoder = decoder(1)
+        self.p_resnet = resnet.resnet18(num_input_channels=1)
+        #self.fc_cnn = nn.Sequential(
+        #    nn.Conv2d(512, 1, 1, 1),
+        #    nn.BatchNorm2d(1),
+        #    nn.ReLU(),
+        #)
+        self.fc = nn.Sequential(
+            ##nn.Dropout(),
+            nn.Linear(56*56, 56*56, bias=False),
+            #nn.BatchNorm1d(56*56),
+            #nn.ReLU(),
+            #nn.Identity()
+            ##nn.Dropout()
         )
+        
+        #self.up = nn.Sequential(
+        #    nn.ReLU(),
+        #    nn.UpsamplingBilinear2d(scale_factor=4),
+        #    nn.Conv2d(1, 1, 1, 1)
+        #)
+        self.up = decoder(513, 1)
         #self.vit = ViT(img_dim=224, in_channels=3, patch_dim=16,
                 #dim=64,
                 #blocks=2,
@@ -96,8 +125,33 @@ class FCN(nn.Module):
 
         #vit_h = self.self_attention(x)
 
-        if self.num_rotations == 1:
-            out = self.end(self.backbone(x))#vit_h)
+        if self.use_fc:
+            p = self.p_resnet.features(x)
+            #p = self.fc_cnn(p)
+            s = p[:, 0].view(-1, 56*56)
+            s = self.fc(s)
+            s = s.view(-1, 1, 56, 56)
+            p = self.up(torch.cat([p, s], 1))
+
+        if self.num_rotations == 1 or self.fast:
+            h = self.backbone(x)
+            #if self.use_fc:
+            #    a = self.fc(h[:, 0].view(-1, 56*56)).view(-1, 1, 56, 56)
+            #    h = torch.cat([h, a], 1)
+            g = self.end(h)#vit_h)
+            #a = self.up(a)
+            #out = out * a
+            if self.use_fc:
+                out = torch.minimum(g, p)
+            else:
+                out = g
+            
+            if self.debug:
+                if self.use_fc:
+                    return out, g, p
+                else:
+                    return out, g, g
+
             return out
         else:
             for rotate_idx in range(self.num_rotations):
@@ -130,7 +184,11 @@ class FCN(nn.Module):
 
                 # Compute intermediate features
                 #output_map = self.end(torch.cat([rotate_vit_h, self.backbone(rotate_depth)], 1))
-                output_map = self.end(self.backbone(rotate_depth))
+                h = self.backbone(rotate_depth)
+                #if self.use_fc:
+                #    a = self.fc(h[:, 0].view(-1, 56*56)).view(-1, 1, 56, 56)
+                #    h = torch.cat([h, a], 1)
+                output_map = self.end(h)
 
                 # Compute sample grid for rotation AFTER branches
                 affine_mat_after = np.asarray(
@@ -147,9 +205,19 @@ class FCN(nn.Module):
                                                     output_map.size())
 
                 # Forward pass through branches, undo rotation on output predictions, upsample results
-                output_prob.append(F.grid_sample(output_map, flow_grid_after, mode='nearest'))
+                h = F.grid_sample(output_map, flow_grid_after, mode='nearest')
+                if self.use_fc:
+                    h = torch.minimum(p, h)
+                output_prob.append(h)
 
-        return output_prob
+        out = torch.stack(output_prob)  # R x N x 1 x H x W
+        out = out.squeeze(2)  # R x N x H x W
+        out = out.permute(1, 0, 2, 3)
+
+        if self.debug:
+            return out, p
+
+        return out
 
 
 if __name__ == '__main__':

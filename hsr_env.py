@@ -500,9 +500,9 @@ DEFAULT_CONFIG = {
 
 
 class GraspEnv:
-    def __init__(self, n_objects=70, config=DEFAULT_CONFIG, setup_room=True, **kwargs):
+    def __init__(self, n_objects=70, config=DEFAULT_CONFIG, setup_room=True, reset_interval=1, **kwargs):
         self.env = HSREnv(**kwargs)
-        self.reset_interval = 1
+        self.reset_interval = reset_interval
 
         self.obj_ids = []
         # self.obj_ids = eu.spawn_ycb(self.env.c_gui)#, ids=list(range(n_objects)))
@@ -570,7 +570,7 @@ class GraspEnv:
             return wrapper
 
         def break_criteria():
-            return self.furniture_collision
+            return self.furniture_collision or self.object_collision
 
         self.env.c_gui.stepSimulation = wrapper(self.env.c_gui.stepSimulation)
         self.env.break_criteria = break_criteria
@@ -963,8 +963,8 @@ class GraspEnv:
             reward = -0.25
             done = True
         elif self.object_collision:
-            reward = min(reward * 0.1, reward)
-            # done = True
+            reward = 0#min(reward * 0.1, reward)
+            done = True
 
         if done:
             self.stats['episodes'] += 1
