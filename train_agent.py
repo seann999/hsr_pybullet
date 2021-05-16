@@ -63,15 +63,25 @@ class QFCN(nn.Module):
             self.grasp_model.load_state_dict(torch.load(pretrain))
 
     def forward(self, x):
+        x, grasping = x
         # print('inference:', x.shape)
         bs = len(x)
-        out = self.grasp_model(x)
-        look_out = self.look_model(x)
 
-        if self.debug:
-            show_viz(x, out, look_out)
+        if grasping > 0:
+            out = torch.zeros((1, 18, 224, 224))
+            out[:, 17, 112, 37] = 1
+        else:
+            out = self.grasp_model(x)
+            look_out = self.look_model(x)
 
-        out = torch.cat([out, look_out], 1)
+            if self.debug:
+                show_viz(x, out, look_out)
+
+            out = torch.cat([out, look_out], 1)
+
+            pad = torch.zeros_like(look_out)
+            out = torch.cat([out, pad], 1)
+
         out = out.reshape(bs, -1)  # N x RHW
 
         #for line in traceback.format_stack():
@@ -94,7 +104,7 @@ def args2config(args):
 
 def phi(x):
     # normalize heightmap
-    return (x - 0.2) / 0.2
+    return (x[0] - 0.2) / 0.2, x[1]
 
 
 def make_env(idx, config):

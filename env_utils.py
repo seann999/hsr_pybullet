@@ -352,6 +352,20 @@ def distort(depth, noise=1.0):
     return simulate(depth, DISTORT_MODEL, noise)
 
 
+def transform(pos, rot, frame):
+    if frame is None:
+        frame = np.eye(4)
+
+    mat = np.eye(4)
+    mat[:3, -1] = pos
+    mat[:3, :3] = R.from_quat(rot).as_matrix()
+
+    mat = frame.dot(mat)
+    pos = mat[:3, -1]
+    rot = R.from_matrix(mat[:3, :3]).as_quat()
+
+    return pos, rot
+
 # class RedwoodNoiseModelCPUImpl:
 #     model: np.ndarray
 #     noise_multiplier: float
