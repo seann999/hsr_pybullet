@@ -637,25 +637,25 @@ class GraspEnv:
 
         pos_noise = 0.03
         x = eu.load_container(self.env.c_gui) if random_containers else self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_tray/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.75 + np.random.uniform(-1, 1) * pos_noise, 0.4),
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.75 + np.random.uniform(-1, 1) * pos_noise, 0.401),
                                                        p.getQuaternionFromEuler([0, 0, 1.57 + np.random.uniform(-1, 1) * rot_noise]))
         self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.3, 1))
         ids.append(x)
 
         x = eu.load_container(self.env.c_gui) if random_containers else self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_tray/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.45 + np.random.uniform(-1, 1) * pos_noise, 0.4),
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.45 + np.random.uniform(-1, 1) * pos_noise, 0.401),
                                                        p.getQuaternionFromEuler([0, 0, 1.57 + np.random.uniform(-1, 1) * rot_noise]))
         self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.3, 1))
         ids.append(x)
 
         x = eu.load_container(self.env.c_gui, shape='left container') if random_containers else self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_container_a/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.2 + np.random.uniform(-1, 1) * pos_noise, 0.4),
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.2 + np.random.uniform(-1, 1) * pos_noise, 0.401),
                                                        p.getQuaternionFromEuler([0, 0, np.random.uniform(-1, 1) * rot_noise]))
         self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.8, 0.0, 0.0, 1))
         ids.append(x)
 
         x = eu.load_container(self.env.c_gui, shape='right container') if random_containers else self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_container_b/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, 0.1 + np.random.uniform(-1, 1) * pos_noise, 0.4),
+        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, 0.1 + np.random.uniform(-1, 1) * pos_noise, 0.401),
                                                        p.getQuaternionFromEuler([0, 0, np.random.uniform(-1, 1) * rot_noise]))
         self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.2, 1))
         ids.append(x)
