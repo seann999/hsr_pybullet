@@ -128,7 +128,7 @@ class HSREnv:
         self.c_gui.setPhysicsEngineParameter(enableFileCaching=0)
 
         planeId = self.c_gui.loadURDF('plane.urdf')
-        self.c_gui.changeDynamics(planeId, -1, lateralFriction=0.5)
+        self.c_gui.changeDynamics(planeId, -1, lateralFriction=1)
 
         px_gui = px.Client(client_id=self.c_gui._client)
         self.robot = px.Robot('hsrb_description/robots/hsrb.urdf', use_fixed_base=True, physics_client=px_gui)
@@ -513,6 +513,7 @@ class GraspEnv:
     def __init__(self, n_objects=70, config=DEFAULT_CONFIG, setup_room=True, reset_interval=1, **kwargs):
         self.env = HSREnv(**kwargs)
         self.reset_interval = reset_interval
+        self.check_object_collision = False
 
         self.obj_ids = []
         # self.obj_ids = eu.spawn_ycb(self.env.c_gui)#, ids=list(range(n_objects)))
@@ -565,7 +566,7 @@ class GraspEnv:
             def wrapper():
                 fn()
 
-                if not self.object_collision:
+                if self.check_object_collision and not self.object_collision:
                     for id in self.obj_ids:
                         if len(self.env.c_gui.getClosestPoints(self.env.robot.id, id, 0, 15, -1)) > 0:
                             self.object_collision = True
@@ -707,7 +708,7 @@ class GraspEnv:
 
         for id in self.obj_ids:
             self.env.c_gui.resetBasePositionAndOrientation(id, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
-            self.env.c_gui.changeDynamics(id, -1, mass=0)
+            # self.env.c_gui.changeDynamics(id, -1, mass=0)
 
         # num_objs = np.random.randint(1, 30)
         selected = np.random.permutation(self.obj_ids)# [:num_objs]
@@ -761,7 +762,7 @@ class GraspEnv:
                     if valid:
                         break
 
-            self.env.c_gui.changeDynamics(id, -1, mass=0.1, lateralFriction=0.5)
+            self.env.c_gui.changeDynamics(id, -1, lateralFriction=0.25)
 
         # print('settle')
         x = [self.env.c_gui.getBasePositionAndOrientation(i)[0] for i in selected]
@@ -827,17 +828,15 @@ class GraspEnv:
         base_x, base_y = random.choice(list(base_locs.values()))
 
         self.env.move_base(base_x, base_y, np.pi)
+        self.env.move_joints({
+            'head_tilt_joint': np.random.uniform(-1.57, 0),
+        }, sim=True)
 
         self.env.move_arm({
             'arm_flex_joint': -np.pi * 0.25,
+            'wrist_flex_joint': -np.pi * 0.25,
             'arm_lift_joint': 0.4,
         })
-        # self.env.move_arm({
-        #     'arm_flex_joint': -np.pi * 0.5,
-        #     'wrist_flex_joint': -np.pi * 0.5,
-        # }, fill=False)
-
-        # input('ok?')
 
         down = p.getQuaternionFromEuler([np.pi, 0, 0])
         pos = np.array([base_x - 0.5, base_y, 0.65 + offset_z])
@@ -848,7 +847,9 @@ class GraspEnv:
 
         self.env.open_gripper()
         self.env.move_ee(pos + np.array([0, 0, 0.1]), down)
+        self.env.move_base(base_x, base_y, np.pi)
         self.env.holding_pose()
+        self.env.close_gripper()
 
     def step(self, action):
         action_type = None
@@ -897,7 +898,6 @@ class GraspEnv:
             surface_height = 0
             self.hmap[self.hmap == 0] = surface_height - self.hmap_bounds[2, 0]
             z = self.hmap[grasp_x[0], grasp_x[1]] + self.hmap_bounds[2, 0]
-
             z += 0.24 - 0.07
 
             if self.env.grasp_primitive([x, y, z], angle, frame=self.obs_config['base_frame'], stop_at_contact=False):

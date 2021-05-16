@@ -135,7 +135,7 @@ def load_obj(client, mesh_path, collision_path, rand_scale=True, area=[[0.5, 3.0
     # print('CENTER', mesh.center_mass, mesh.mass)
 
     obj_id = client.createMultiBody(
-        baseMass=0.1,
+        baseMass=mesh.mass,
         basePosition=(0, 0, 0),
         baseCollisionShapeIndex=col_shape_id,
         baseVisualShapeIndex=viz_shape_id,
@@ -196,7 +196,6 @@ def spawn_objects(client, ids=None, ycb=True, num_spawn=None):
             #         break
 
             # client.changeVisualShape(obj_id, -1, textureUniqueId=-1)
-            # client.changeDynamics(obj_id, -1, lateralFriction=0.5)
 
             obj_ids.append(obj_id)
             # index += 1
