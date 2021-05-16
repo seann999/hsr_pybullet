@@ -41,8 +41,10 @@ POSE_HOLDING = {
 
 # robot.set_actions({'joint_position': q}) exceeds max velocity, so use this fn
 def set_joint_position(client, robot, joint_position, max_forces=None, use_joint_effort_limits=True):
-    vels = robot.get_joint_infos()['joint_max_velocity']
+    max_vels = robot.get_joint_infos()['joint_max_velocity']
     force = robot.get_joint_infos()['joint_max_force']
+    pos = list(robot.get_states()['joint_position'])
+
     joint2idx = {j.decode('utf-8'): i for i, j in enumerate(robot.get_joint_infos()['joint_name'])}
     robot.torque_control = False
 
@@ -76,7 +78,7 @@ def set_joint_position(client, robot, joint_position, max_forces=None, use_joint
         for k, v in joint_position.items():
             i = joint2idx[k]
             client.setJointMotorControl2(robot.id, robot.free_joint_indices[i], p.POSITION_CONTROL,
-                                         targetPosition=v, maxVelocity=vels[i], force=force[i])
+                                         targetPosition=v, maxVelocity=max_vels[i], force=force[i])
     else:
         assert len(robot.free_joint_indices) == len(joint_position) or len(robot.free_joint_indices) - 4 == len(
             joint_position), (
@@ -84,9 +86,17 @@ def set_joint_position(client, robot, joint_position, max_forces=None, use_joint
             f"the number of joint indices ({len(robot.free_joint_indices)})"
         )
 
+        time = np.max([abs(joint_position[i] - pos[i]) / max_vels[i] for i in [0, 1, 2]])
+
         for i in range(len(joint_position)):
-            client.setJointMotorControl2(robot.id, robot.free_joint_indices[i], p.POSITION_CONTROL,
-                                         targetPosition=joint_position[i], maxVelocity=vels[i], force=force[i])
+            if time > 0 and (i in [0, 1, 2]):  # linear path
+                v = abs(joint_position[i] - pos[i]) / time
+                client.setJointMotorControl2(robot.id, robot.free_joint_indices[i], p.POSITION_CONTROL,
+                                             targetPosition=joint_position[i], maxVelocity=v,#max_vels[i],
+                                             force=force[i], targetVelocity=v)
+            else:
+                client.setJointMotorControl2(robot.id, robot.free_joint_indices[i], p.POSITION_CONTROL,
+                                         targetPosition=joint_position[i], maxVelocity=max_vels[i], force=force[i])
 
 
 def pose2mat(pos, orn):
