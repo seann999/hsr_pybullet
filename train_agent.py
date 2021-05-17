@@ -67,22 +67,26 @@ class QFCN(nn.Module):
         # print('inference:', x.shape)
         bs = len(x)
 
-        if grasping > 0:
-            out = torch.zeros((1, 18, 224, 224))
-            out[:, 17, 112, 37] = 1
-        else:
-            out = self.grasp_model(x)
-            look_out = self.look_model(x)
+        #if grasping > 0:
+        place_out = torch.zeros((bs, 18, 224, 224)).cuda()
+        place_out[:, 17, 112, 37] = 1
+        place_out = place_out.view(bs, -1)
+        #else:
+        out = self.grasp_model(x)
+        look_out = self.look_model(x)
 
-            if self.debug:
-                show_viz(x, out, look_out)
+        if self.debug:
+            show_viz(x, out, look_out)
 
-            out = torch.cat([out, look_out], 1)
+        out = torch.cat([out, look_out], 1)
 
-            pad = torch.zeros_like(look_out)
-            out = torch.cat([out, pad], 1)
+        pad = torch.zeros_like(look_out)
+        out = torch.cat([out, pad], 1)
 
         out = out.reshape(bs, -1)  # N x RHW
+
+        place = (grasping > 0).unsqueeze(1)
+        out = torch.where(place, place_out, out)
 
         #for line in traceback.format_stack():
         #    print(line.strip())
