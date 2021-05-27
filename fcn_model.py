@@ -5,8 +5,28 @@ import torch
 import torch.nn.functional as F
 import time
 
+#from self_attention import SAModule
+#from self_attention import ViT
 from self_attention_cv import ViT
+from self_attention_cv.transformer_vanilla.mhsa import MultiHeadSelfAttention
+from self_attention_cv.transformer_vanilla.transformer_block import TransformerBlock
 import resnet
+
+
+#class MHSAEncoder(nn.Module):
+#    def __init__(self, dim, heads, dim_head):
+
+#class MHSAEncoder(nn.Module):
+#    def __init__(self, dim, blocks, heads, dim_head):
+#        super().__init__()
+#        #self.layers = nn.ModuleList([MultiHeadSelfAttention(dim, heads, dim_head) for _ in range(blocks)])
+#        self.layers = nn.ModuleList([TransformerBlock(dim, heads, dim_head, dim, 0) for _ in range(blocks)])
+#    
+#    def forward(self, x, mask):
+#        for layer in self.layers:
+#            x = layer(x)
+#        return x
+
 
 class FCN(nn.Module):
     def __init__(self, num_rotations=16, use_fc=False, fast=False, debug=False):
@@ -39,28 +59,42 @@ class FCN(nn.Module):
           )
         self.end = decoder(512, num_rotations if fast else 1)
 
+        D = 64
+        #self.tf = MHSAEncoder(dim=D, blocks=2, heads=H, dim_head=D // H)
+        self.vit = ViT(img_dim=56, in_channels=512, patch_dim=4, heads=4, blocks=2, dim_linear_block=D, dim=D, dropout=0, classification=False)
+        #self.gg = nn.Conv2d(514, 512, 1, 1) 
+        #self.s2d = nn.Softmax2d()
         #self.p_decoder = decoder(1)
-        self.p_resnet = resnet.resnet18(num_input_channels=1)
+        #self.p_resnet = resnet.resnet18(num_input_channels=1)
         #self.fc_cnn = nn.Sequential(
-        #    nn.Conv2d(512, 1, 1, 1),
-        #    nn.BatchNorm2d(1),
-        #    nn.ReLU(),
+        #    nn.Conv2d(64, 512, 1, 1),
+        #    #nn.BatchNorm2d(1),
+        #    #nn.ReLU(),
         #)
-        self.fc = nn.Sequential(
-            ##nn.Dropout(),
-            nn.Linear(56*56, 56*56, bias=False),
-            #nn.BatchNorm1d(56*56),
+        self.dconv = nn.Sequential(
+            #nn.Conv2d(D, 512, 4, 4),
+            #nn.BatchNorm2d(512),
             #nn.ReLU(),
-            #nn.Identity()
-            ##nn.Dropout()
+            nn.ConvTranspose2d(D, 512, 4, stride=4),
+            nn.BatchNorm2d(512),
+            nn.ReLU(),
         )
+        #self.fc = nn.Sequential(
+        #    ##nn.Dropout(),
+        #    nn.Linear(28*28, 28*28),
+        #    nn.ReLU(),
+        #    nn.Linear(28*28, 28*28),
+        #    #nn.BatchNorm1d(56*56),
+        #    nn.ReLU(),
+        #    #nn.Identity()
+        #    ##nn.Dropout()
+        #)
         
         #self.up = nn.Sequential(
-        #    nn.ReLU(),
-        #    nn.UpsamplingBilinear2d(scale_factor=4),
-        #    nn.Conv2d(1, 1, 1, 1)
+        #    nn.Conv2d(1, 1, 1, 1),
+        #    nn.UpsamplingBilinear2d(scale_factor=8),
         #)
-        self.up = decoder(513, 1)
+        #self.up = decoder(513, 1)
         #self.vit = ViT(img_dim=224, in_channels=3, patch_dim=16,
                 #dim=64,
                 #blocks=2,
@@ -107,11 +141,12 @@ class FCN(nn.Module):
     def self_attention(self, x):
         z = self.vit(x)
         #z = self.vit_fc(z)
-        z = z.view(-1, 14, 14, 512)
+        z = z.reshape(-1, 14, 14, z.size(2))
         z = z.permute(0, 3, 1, 2)
-        x = self.vit_upsample(z)
+        z = self.dconv(z)
+        #z = F.interpolate(z, (56, 56), mode='bilinear')
         #x = F.relu(z)#x + z)
-        return x
+        return z
 
     def forward(self, x):
         bs = len(x)
@@ -125,30 +160,45 @@ class FCN(nn.Module):
 
         #vit_h = self.self_attention(x)
 
-        if self.use_fc:
-            p = self.p_resnet.features(x)
-            #p = self.fc_cnn(p)
-            s = p[:, 0].view(-1, 56*56)
-            s = self.fc(s)
-            s = s.view(-1, 1, 56, 56)
-            p = self.up(torch.cat([p, s], 1))
+        #if self.use_fc:
+        #    p = self.p_resnet.features(x)
+        #    #p = self.fc_cnn(p)
+        #    s = p[:, 0]
+        #    s = F.max_pool2d(s, 2)
+        #    s = s.view(-1, 28*28)
+        #    s = self.fc(s)
+        #    s = s.view(-1, 1, 28, 28)
+        #    #s = F.interpolate(s, (56, 56))
+        #    #p = self.up(torch.cat([p, s], 1))
+        #    p = self.up(s)
 
         if self.num_rotations == 1 or self.fast:
-            h = self.backbone(x)
+            # h = self.backbone(x)
             #if self.use_fc:
             #    a = self.fc(h[:, 0].view(-1, 56*56)).view(-1, 1, 56, 56)
             #    h = torch.cat([h, a], 1)
-            g = self.end(h)#vit_h)
+            if self.use_fc:
+                h = self.backbone(x)
+                h = h + self.self_attention(h)
+                #p = self.s2d(self.gg(g))
+                #h = p
+                #out = self.dconv(h)
+                out = self.end(h)
+            else:
+                h = self.backbone(x)
+
+                out = self.end(h)#vit_h)
             #a = self.up(a)
             #out = out * a
-            if self.use_fc:
-                out = torch.minimum(g, p)
-            else:
-                out = g
+            #if self.use_fc:
+            #    out = torch.minimum(g, p)
+            #else:
+            #    out = g
+            g = out
             
             if self.debug:
                 if self.use_fc:
-                    return out, g, p
+                    return out, g, g
                 else:
                     return out, g, g
 

@@ -63,8 +63,8 @@ def create_fig(y_hat, y, g, p):
         ax[0, i].imshow(x[i, 0])
         ax[1, i].imshow(y_hat[i, 0], vmin=0, vmax=1)
         ax[2, i].imshow(y[i, 0], vmin=0, vmax=1)
-        ax[3, i].imshow(g[i, 0], vmin=0, vmax=1)
-        ax[4, i].imshow(p[i, 0], vmin=0, vmax=1)
+        ax[3, i].imshow(g[i, 0])
+        ax[4, i].imshow(p[i, 0])
 
     fig.set_size_inches(24, 15)
     fig.tight_layout()
@@ -79,7 +79,7 @@ model.cuda()
 optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
 
 train_losses, val_losses = [], []
-root = 'pretrain_results/fast'
+root = 'pretrain_results/vit_enc'
 
 try:
     os.makedirs(root)
@@ -94,6 +94,9 @@ def reg_loss(p):
     loss = 0 * torch.abs(p).sum(3).sum(2).sum(1).mean()
 
     return loss
+
+def phi(x):
+    return (x - 0.2) / 0.2
 
 for ep in range(101):
     total_loss = 0
