@@ -1009,13 +1009,14 @@ class GraspEnv:
                         self.check_collisions = False
                         self.preplace()
                         self.check_collisions = True
+                        self.object_collision = False
 
                         obj = self.check_grasp()
                         if obj is None:  # object dropped while moving
                             grasp_success = False
                             self.target_loc = None
 
-                reward = 1 if grasp_success else 0
+                reward = 1 if grasp_success else -0.1
 
                 if grasp_success:
                     if self.object_collision and not preplace:
@@ -1056,12 +1057,9 @@ class GraspEnv:
         if self.furniture_collision:
             reward = -0.25
             done = True
-        elif self.object_collision and not preplace:
+        elif self.object_collision:
             reward = 0#.25#min(reward * 0.1, reward)
             done = True
-
-        if self.object_collision and preplace:
-            print('collision occured while moving to placing')
 
         if done:
             self.stats['episodes'] += 1
