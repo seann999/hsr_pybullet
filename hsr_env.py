@@ -38,7 +38,7 @@ base_locs = {
     'right_tray': [-2.1, -0.4],
     'left_tray': [-2.1, -0.7],
     'right_bin': [-2.2, -1.2],
-    'left_bin': [-2.2, -1.65],
+    'left_bin': [-2.2, -1.5],
     'right_drawer': [-1.8, 0.7],
     'left_drawer': [-1.8, 1.0],
 }
@@ -949,6 +949,7 @@ class GraspEnv:
             action_type = 'place'
 
         reward = 0
+        r2 = 0
         done = False
 
         # print(action_type)
@@ -989,6 +990,7 @@ class GraspEnv:
             self.hmap[self.hmap == 0] = surface_height - self.hmap_bounds[2, 0]
             z = self.hmap[grasp_x[0], grasp_x[1]] + self.hmap_bounds[2, 0]
             z += 0.24 - 0.07
+            r2 = np.linalg.norm(np.array([grasp_px, grasp_py]) - np.array([0, 112])) / 224.0 * -0.3
 
             if self.env.grasp_primitive([x, y, z], angle, frame=self.obs_config['base_frame'], stop_at_contact=False):
                 self.env.holding_pose()
@@ -1016,7 +1018,7 @@ class GraspEnv:
                             grasp_success = False
                             self.target_loc = None
 
-                reward = 1 if grasp_success else -0.1
+                reward = (1 if grasp_success else -0.1) + r2
 
                 if grasp_success:
                     if self.object_collision and not preplace:
@@ -1055,10 +1057,10 @@ class GraspEnv:
         self.stats['object_collisions'] += int(self.object_collision)
 
         if self.furniture_collision:
-            reward = -0.25
+            reward = -0.25 + r2
             done = True
         elif self.object_collision:
-            reward = 0#.25#min(reward * 0.1, reward)
+            reward = 0 + r2#.25#min(reward * 0.1, reward)
             done = True
 
         if done:

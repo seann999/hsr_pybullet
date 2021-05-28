@@ -56,7 +56,7 @@ class QFCN(nn.Module):
         rots = 16
 
         self.grasp_model = FCN(rots, use_fc=True, fast=True)
-        self.look_model = FCN(1, fast=True)
+        self.look_model = FCN(1, use_fc=True, fast=True)
         self.debug = debug
 
         if pretrain:
