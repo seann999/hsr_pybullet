@@ -637,7 +637,7 @@ class GraspEnv:
                 np.random.uniform(-0.01, 0.01),
                 np.random.uniform(-0.03, 0.03),
             ])
-            eu.spawn_knob(self.env.c_gui, np.array(pos) + np.array([0.205, 0, 0.04]) + random_offset)
+            knob_id = eu.spawn_knob(self.env.c_gui, np.array(pos) + np.array([0.205, 0, 0.04]) + random_offset)
             ids.append(x)
 
         pull = (-2.4 if drawers_open else -2.7) + np.random.uniform(-1, 1) * pull_noise
