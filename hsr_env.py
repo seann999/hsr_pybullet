@@ -327,7 +327,7 @@ class HSREnv:
     def reset_pose(self):
         neutral = [0 for _ in self.robot.get_states()['joint_position']]
         neutral[0] = np.random.uniform(-2, -1)# q[0]
-        neutral[1] = np.random.uniform(-1, 1)# q[1]
+        neutral[1] = np.random.uniform(-1.5, 1.5)# q[1]
         # neutral[2] = q[2]
         for k, v in POSE_HOLDING.items():
             neutral[self.joint2idx[k]] = v
@@ -624,23 +624,32 @@ class GraspEnv:
         self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, 1, 0), (0, 0, 0, 1))
         ids.append(x)
 
+        random_knob = True
+        drawer_path = 'tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/{}/model-1_4.sdf'.format('trofast' if random_knob else 'trafast_knob')
         pull_noise = 0.05
-        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/trofast_knob/model-1_4.sdf')[0]
-        pull = (-2.4 if drawers_open else -2.7) + np.random.uniform(-1, 1) * pull_noise
-        self.env.c_gui.resetBasePositionAndOrientation(x, (pull, 0.67, 0.1 + 0.115), (0, 0, 0, 1))
-        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(1, 0.5, 0, 1))
-        ids.append(x)
 
-        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/trofast_knob/model-1_4.sdf')[0]
-        pull = (-2.4 if drawers_open else -2.7) + np.random.uniform(-1, 1) * pull_noise
-        self.env.c_gui.resetBasePositionAndOrientation(x, (pull, 1, 0.1 + 0.115), (0, 0, 0, 1))
-        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(1, 0.5, 0, 1))
-        ids.append(x)
+        def spawn_drawer(pos):
+            x = self.env.c_gui.loadSDF(drawer_path)[0]
+            self.env.c_gui.resetBasePositionAndOrientation(x, pos, (0, 0, 0, 1))
+            self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(1, 0.5, 0, 1))
+            random_offset = np.array([
+                np.random.uniform(-0.01, 0.01),
+                np.random.uniform(-0.01, 0.01),
+                np.random.uniform(-0.03, 0.03),
+            ])
+            eu.spawn_knob(self.env.c_gui, np.array(pos) + np.array([0.205, 0, 0.04]) + random_offset)
+            ids.append(x)
 
-        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/trofast_knob/model-1_4.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pull_noise, 1, 0.36 + 0.115), (0, 0, 0, 1))
-        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(1, 0.5, 0, 1))
-        ids.append(x)
+        pull = (-2.4 if drawers_open else -2.7) + np.random.uniform(-1, 1) * pull_noise
+        pos = (pull, 1, 0.1 + 0.115)
+        spawn_drawer(pos)
+
+        pull = (-2.4 if drawers_open else -2.7) + np.random.uniform(-1, 1) * pull_noise
+        pos = (pull, 0.67, 0.1 + 0.115)
+        spawn_drawer(pos)
+
+        pos = (-2.7 + np.random.uniform(-1, 1) * pull_noise, 1, 0.36 + 0.115)
+        spawn_drawer(pos)
 
         x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_tall_table/model.sdf')[0]
         self.env.c_gui.resetBasePositionAndOrientation(x, (-0.3 + np.random.uniform(-1, 1) * pos_noise, 1.2 + np.random.uniform(-1, 1) * pos_noise, 0), p.getQuaternionFromEuler([0, 0, np.random.uniform(-1, 1) * rot_noise]))
