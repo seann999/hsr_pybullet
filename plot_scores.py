@@ -24,7 +24,7 @@ def main():
             fpath = os.path.join(fpath, 'scores.txt')
         assert os.path.exists(fpath)
         scores = pd.read_csv(fpath, delimiter='\t')
-        plt.plot(scores['steps'], scores['mean'], label=label)
+        plt.plot(scores['steps'], scores[label], label=label)
 
     plt.xlabel('steps')
     plt.ylabel('score')
