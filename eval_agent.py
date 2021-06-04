@@ -86,6 +86,9 @@ if __name__ == '__main__':
             obs = env.reset()
             print('reset done')
 
+            #while True:
+            #    env.env.stepSimulation()
+
             R = 0  # return (sum of rewards)
             t = 0  # time step
             while True:

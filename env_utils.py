@@ -98,6 +98,51 @@ def get_heightmaps(client, configs, bounds=None, return_seg=False, px_size=0.003
     return heightmaps, colormaps, segmaps#, rgbs, depths, segs
 
 
+def spawn_knob(client, pos):
+    paths = sorted([x for x in os.listdir('assets/shapenetsem/original') if x.endswith('.obj')])
+
+    while True:
+        # print('try')
+        x = random.choice(paths)
+        path = 'assets/shapenetsem/original/{}'.format(x)
+        collision_path = 'assets/shapenetsem/collision/{}'.format(x)
+        mesh = trimesh.load(path, force='mesh', process=False)
+
+        max_side = max(mesh.extents)
+        scale = np.random.uniform(0.05, 0.08) / max_side
+        mesh.apply_scale(scale)
+        extents = np.array(mesh.extents)
+
+        if np.all(extents > 0.04):
+            break
+
+    scale = [scale, scale, scale]
+    centroid = mesh.centroid
+
+    viz_shape_id = client.createVisualShape(
+        shapeType=client.GEOM_MESH,
+        fileName=collision_path, meshScale=scale,
+        visualFramePosition=-centroid,
+    )
+
+    col_shape_id = client.createCollisionShape(
+        shapeType=client.GEOM_MESH,
+        fileName=collision_path, meshScale=scale,
+        collisionFramePosition=-centroid,
+    )
+
+    obj_id = client.createMultiBody(
+        baseMass=0,
+        basePosition=pos,
+        baseCollisionShapeIndex=col_shape_id,
+        baseVisualShapeIndex=viz_shape_id,
+        baseOrientation=R.random().as_quat(),
+        #baseInertialFramePosition=np.array(mesh.center_mass),
+    )
+
+    return obj_id
+
+
 def load_obj(client, mesh_path, collision_path, rand_scale=True, area=[[0.5, 3.0], [-1.5, 1.5], [0.4, 0.6]]):
     name_log = 'log.txt'
 
