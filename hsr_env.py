@@ -327,7 +327,7 @@ class HSREnv:
     def reset_pose(self):
         neutral = [0 for _ in self.robot.get_states()['joint_position']]
         neutral[0] = np.random.uniform(-2, -1)# q[0]
-        neutral[1] = np.random.uniform(-1, 1)# q[1]
+        neutral[1] = np.random.uniform(-1.5, 1.5)# q[1]
         # neutral[2] = q[2]
         for k, v in POSE_HOLDING.items():
             neutral[self.joint2idx[k]] = v
@@ -516,10 +516,11 @@ DEFAULT_CONFIG = {
 
 
 class GraspEnv:
-    def __init__(self, n_objects=70, config=DEFAULT_CONFIG, setup_room=True, reset_interval=1, **kwargs):
+    def __init__(self, n_objects=70, config=DEFAULT_CONFIG, setup_room=True, reset_interval=1, ycb=True, **kwargs):
         self.env = HSREnv(**kwargs)
         self.reset_interval = reset_interval
         self.check_object_collision = True
+        self.ycb = ycb
 
         self.obj_ids = []
         self.furn_ids = []
@@ -713,7 +714,7 @@ class GraspEnv:
         for obj in self.obj_ids:
             self.env.c_gui.removeBody(obj)
 
-        self.obj_ids = eu.spawn_objects(self.env.c_gui, num_spawn=np.random.randint(1, 31))
+        self.obj_ids = eu.spawn_objects(self.env.c_gui, num_spawn=np.random.randint(1, 31), ycb=self.ycb)
 
         self.placed_objects = []
 

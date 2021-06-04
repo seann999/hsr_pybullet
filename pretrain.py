@@ -9,18 +9,22 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split
 import matplotlib.pyplot as plt
 from fcn_model import FCN
-from train_agent import phi
+#from train_agent import phi
+
+
+def phi(x):
+    return (x - 0.2) / 0.2
 
 
 class SegData:
     def __init__(self, train):
-        self.root = 'pretrain_data'
+        self.root = 'pretrain_data2'
         self.files = os.listdir(self.root)
 
         if train:
-            self.files = self.files[:8000]
+            self.files = self.files[:16000]
         else:
-            self.files = self.files[8000:]
+            self.files = self.files[16000:20000]
 
     def __len__(self):
         return len(self.files)
@@ -33,7 +37,7 @@ class SegData:
         rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
         # hmap = cv2.warpAffine(hmap, rot_mat, (224, 224))
 
-        hmap = (hmap / 1000.0).astype(np.float32)[None]
+        hmap = (hmap / 1000.0).astype(np.float32)#[None]
         #gtmap = cv2.imread(os.path.join(self.root, self.files[idx], 'maskmap.png'))[:, :, 0] > 0
         segmap = cv2.imread(os.path.join(self.root, self.files[idx], 'segmap.png'))[:, :, 0]
         info = json.load(open(os.path.join(self.root, self.files[idx], 'ids.json'), 'r'))
@@ -50,11 +54,11 @@ class SegData:
         gtmap = gtmap.astype(np.float32)
         # gtmap = cv2.warpAffine(gtmap, rot_mat, (224, 224))
 
-        return hmap, gtmap
+        return np.stack([hmap, hmap, hmap]), gtmap
 
 
-def create_fig(y_hat, y, g, p):
-    fig, ax = plt.subplots(5, 8)
+def create_fig(y_hat, y):
+    fig, ax = plt.subplots(3, 8)
     #y_hat = F.sigmoid(y_hat).detach().cpu().numpy()
     y_hat = y_hat.detach().cpu().numpy()
     y = y.cpu().numpy()
@@ -63,8 +67,8 @@ def create_fig(y_hat, y, g, p):
         ax[0, i].imshow(x[i, 0])
         ax[1, i].imshow(y_hat[i, 0], vmin=0, vmax=1)
         ax[2, i].imshow(y[i, 0], vmin=0, vmax=1)
-        ax[3, i].imshow(g[i, 0], vmin=0, vmax=1)
-        ax[4, i].imshow(p[i, 0], vmin=0, vmax=1)
+        #ax[3, i].imshow(g[i, 0], vmin=0, vmax=1)
+        #ax[4, i].imshow(p[i, 0], vmin=0, vmax=1)
 
     fig.set_size_inches(24, 15)
     fig.tight_layout()
@@ -95,15 +99,15 @@ def reg_loss(p):
 
     return loss
 
-for ep in range(101):
+for ep in range(1001):
     total_loss = 0
     model.train()
 
     for i, (x, y) in enumerate(train_loader):
-        y_hat, g, p = model.forward(phi(x).cuda())
+        y_hat = model.forward(phi(x).cuda())
         y = y.unsqueeze(1).cuda()
         #loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
-        loss = (y_hat - y).pow(2).sum(3).sum(2).sum(1).mean() + reg_loss(p)
+        loss = (y_hat - y).pow(2).sum(3).sum(2).sum(1).mean()
 
         optimizer.zero_grad()
         loss.backward()
@@ -118,7 +122,7 @@ for ep in range(101):
     print(loss_avg)
     train_losses.append(min(1000,loss_avg))
 
-    fig = create_fig(y_hat, y, g.cpu().detach().numpy(), p.cpu().detach().numpy())
+    fig = create_fig(y_hat, y)
     fig.savefig(root + '/train_{:05d}.png'.format(ep))
 
     del y_hat, loss
@@ -128,10 +132,10 @@ for ep in range(101):
     model.eval()
 
     for i, (x, y) in enumerate(val_loader):
-        y_hat, g, p = model.forward(phi(x).cuda())
+        y_hat = model.forward(phi(x).cuda())
         y = y.unsqueeze(1).cuda()
         #loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
-        loss = (y_hat - y).pow(2).sum(3).sum(2).sum(1).mean() + reg_loss(p)
+        loss = (y_hat - y).pow(2).sum(3).sum(2).sum(1).mean()
 
         loss = loss.cpu().detach().numpy()
         total_loss += loss
@@ -142,7 +146,7 @@ for ep in range(101):
     print(loss_avg)
     val_losses.append(min(1000,loss_avg))
 
-    fig = create_fig(y_hat, y, g.cpu().detach().numpy(), p.cpu().detach().numpy())
+    fig = create_fig(y_hat, y)
     fig.savefig(root + '/val_{:05d}.png'.format(ep))
 
     plt.clf()

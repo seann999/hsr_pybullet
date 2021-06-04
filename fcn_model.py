@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import time
 
 from self_attention_cv import ViT
+from torchvision.models.segmentation import deeplabv3_resnet50
 import resnet
 
 class FCN(nn.Module):
@@ -20,7 +21,7 @@ class FCN(nn.Module):
 
         #modules = list(models.resnet18().children())[:-5]
         #self.backbone = nn.Sequential(*modules)
-        self.resnet = resnet.resnet18(num_input_channels=1)#models.resnet18()
+        self.backbone = resnet.resnet18(num_input_channels=3)#models.resnet18()
         #backbone = resnet.resnet18(num_input_channels=3, num_classes=1)
         #self.resnet.cuda()
         #self.backbone = backbone.features
@@ -37,54 +38,14 @@ class FCN(nn.Module):
             nn.UpsamplingBilinear2d(scale_factor=2),
             nn.Conv2d(32, out, 1, 1),
           )
-        self.end = decoder(512, num_rotations if fast else 1)
-
-        #self.p_decoder = decoder(1)
-        self.p_resnet = resnet.resnet18(num_input_channels=1)
-        #self.fc_cnn = nn.Sequential(
-        #    nn.Conv2d(512, 1, 1, 1),
-        #    nn.BatchNorm2d(1),
+        self.decoder = decoder(512, 16)
+        #self.fcn = deeplabv3_resnet50(pretrained=False, num_classes=16)
+        #self.head = nn.Sequential(
+        #    nn.Conv2d(32, 32, 1, 1),
+        #    nn.BatchNorm2d(32),
         #    nn.ReLU(),
+        #    nn.Conv2d(32, num_rotations if fast else 1, 1, 1)
         #)
-        self.fc = nn.Sequential(
-            ##nn.Dropout(),
-            nn.Linear(56*56, 56*56, bias=False),
-            #nn.BatchNorm1d(56*56),
-            #nn.ReLU(),
-            #nn.Identity()
-            ##nn.Dropout()
-        )
-        
-        #self.up = nn.Sequential(
-        #    nn.ReLU(),
-        #    nn.UpsamplingBilinear2d(scale_factor=4),
-        #    nn.Conv2d(1, 1, 1, 1)
-        #)
-        self.up = decoder(513, 1)
-        #self.vit = ViT(img_dim=224, in_channels=3, patch_dim=16,
-                #dim=64,
-                #blocks=2,
-                #heads=1,
-                #dim_linear_block=64,
-        #        classification=False)
-        #self.vit_fc = nn.Linear(512, 64)
-        #self.vit_upsample = nn.Sequential(
-        #    nn.Conv2d(512, 256, 1, 1),
-        #    nn.BatchNorm2d(256),
-        #    nn.ReLU(),
-        #    nn.UpsamplingBilinear2d(scale_factor=4),
-        #    nn.Conv2d(256, 128, 1, 1),
-        #    nn.BatchNorm2d(128),
-        #    nn.ReLU(),
-            #nn.BatchNorm2d(64),
-            #nn.UpsamplingBilinear2d(scale_factor=2),
-            #nn.Conv2d(512, 514, 1, 1),
-        #)
-
-    def backbone(self, x):
-        x = self.resnet.features(x)
-
-        return x
 
     def cat_grid(self, input, affine_grid=None):
         x = torch.abs(torch.linspace(-0.5, 0.5, steps=input.shape[-2])).cuda() # side
@@ -104,55 +65,18 @@ class FCN(nn.Module):
 
         return x
 
-    def self_attention(self, x):
-        z = self.vit(x)
-        #z = self.vit_fc(z)
-        z = z.view(-1, 14, 14, 512)
-        z = z.permute(0, 3, 1, 2)
-        x = self.vit_upsample(z)
-        #x = F.relu(z)#x + z)
-        return x
-
     def forward(self, x):
         bs = len(x)
-        # y = self.end(self.backbone(x))
-
-        # assert x.shape[-2:] == y.shape[-2:], 'input =/= output shape {} {}'.format(x.shape, y.shape)
         output_prob = []
 
-        # x = x[:, 0:1]
-        # x = self.cat_meshgrid(x)
-
-        #vit_h = self.self_attention(x)
-
-        if self.use_fc:
-            p = self.p_resnet.features(x)
-            #p = self.fc_cnn(p)
-            s = p[:, 0].view(-1, 56*56)
-            s = self.fc(s)
-            s = s.view(-1, 1, 56, 56)
-            p = self.up(torch.cat([p, s], 1))
-
         if self.num_rotations == 1 or self.fast:
-            h = self.backbone(x)
-            #if self.use_fc:
-            #    a = self.fc(h[:, 0].view(-1, 56*56)).view(-1, 1, 56, 56)
-            #    h = torch.cat([h, a], 1)
-            g = self.end(h)#vit_h)
-            #a = self.up(a)
-            #out = out * a
-            if self.use_fc:
-                out = torch.minimum(g, p)
-            else:
-                out = g
-            
-            if self.debug:
-                if self.use_fc:
-                    return out, g, p
-                else:
-                    return out, g, g
+            #h = self.backbone(self.cat_grid(x))
+            #g = self.end(h)
+            g = self.decoder(self.backbone.features(x))
+            #h = self.fcn(x)['out']
+            #g = self.head(torch.cat([h, g], 1))
 
-            return out
+            return g
         else:
             for rotate_idx in range(self.num_rotations):
                 rotate_theta = np.radians(rotate_idx * (360 / self.num_rotations))
