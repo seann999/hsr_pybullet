@@ -53,6 +53,7 @@ def generate(seed, indices, args):
         json.dump({
             'robot_id': env.env.robot.id,
             'furn_ids': env.furn_ids,
+            'placed_obj_ids': env.placed_objects,
             'obj_ids': env.obj_ids,
         }, open(os.path.join(d, 'ids.json'), 'w'))
 
@@ -64,7 +65,7 @@ if __name__ == '__main__':
     parser.add_argument('--gui', action='store_true')
     parser.add_argument('--show-maps', action='store_true')
     parser.add_argument('--root', type=str, default='pretrain_test')
-    parser.add_argument('--workers', type=int, default=8)
+    parser.add_argument('--workers', type=int, default=1)
     args = parser.parse_args()
 
     try:
