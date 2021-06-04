@@ -37,7 +37,7 @@ class SegData:
         rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
         # hmap = cv2.warpAffine(hmap, rot_mat, (224, 224))
 
-        hmap = (hmap / 1000.0).astype(np.float32)#[None]
+        hmap = (hmap / 1000.0).astype(np.float32)[None]
         #gtmap = cv2.imread(os.path.join(self.root, self.files[idx], 'maskmap.png'))[:, :, 0] > 0
         segmap = cv2.imread(os.path.join(self.root, self.files[idx], 'segmap.png'))[:, :, 0]
         info = json.load(open(os.path.join(self.root, self.files[idx], 'ids.json'), 'r'))
@@ -54,7 +54,7 @@ class SegData:
         gtmap = gtmap.astype(np.float32)
         # gtmap = cv2.warpAffine(gtmap, rot_mat, (224, 224))
 
-        return np.stack([hmap, hmap, hmap]), gtmap
+        return hmap, gtmap
 
 
 def create_fig(y_hat, y):
