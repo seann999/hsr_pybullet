@@ -56,7 +56,7 @@ class QFCN(nn.Module):
         rots = 16
 
         self.grasp_model = FCN(rots, use_fc=True, fast=True)
-        self.look_model = FCN(1, fast=True)
+        self.look_model = FCN(1, use_fc=True, fast=True)
         self.debug = debug
 
         if pretrain:
@@ -154,10 +154,10 @@ if __name__ == '__main__':
 
     explorer = pfrl.explorers.LinearDecayEpsilonGreedy(
         1, 0.01, 16000, random_action_func=GraspEnv.random_action_sample_fn(config, False))
-    #optimizer = torch.optim.Adam(q_func.parameters(), lr=1e-4, eps=0.01, weight_decay=1e-4)
-    optimizer = torch.optim.SGD(q_func.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0001)
-    #replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10000, betasteps=160000//4)
-    replay_buffer = pfrl.replay_buffers.ReplayBuffer(10000, 1)
+    optimizer = torch.optim.Adam(q_func.parameters(), lr=1e-4)
+    #optimizer = torch.optim.SGD(q_func.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0001)
+    replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10000, betasteps=160000)
+    #replay_buffer = pfrl.replay_buffers.ReplayBuffer(10000, 1)
 
     gpu = 0
 

@@ -38,7 +38,7 @@ base_locs = {
     'right_tray': [-2.1, -0.4],
     'left_tray': [-2.1, -0.7],
     'right_bin': [-2.2, -1.2],
-    'left_bin': [-2.2, -1.65],
+    'left_bin': [-2.2, -1.5],
     'right_drawer': [-1.8, 0.7],
     'left_drawer': [-1.8, 1.0],
 }
@@ -520,6 +520,7 @@ class GraspEnv:
         self.env = HSREnv(**kwargs)
         self.reset_interval = reset_interval
         self.check_object_collision = True
+        self.break_collision = True
         self.ycb = ycb
 
         self.obj_ids = []
@@ -590,7 +591,7 @@ class GraspEnv:
             return wrapper
 
         def break_criteria():
-            return self.furniture_collision or self.object_collision
+            return self.break_collision and (self.furniture_collision or self.object_collision)
 
         self.env.c_gui.stepSimulation = wrapper(self.env.c_gui.stepSimulation)
         self.env.break_criteria = break_criteria
@@ -712,6 +713,7 @@ class GraspEnv:
         self.ep_start_time = time.time()
         self.ep_counter += 1
         self.target_loc = None
+        self.break_collision = True
 
         if self.ep_counter % self.reset_interval == 0:
             self.env.c_gui.resetSimulation()
@@ -845,7 +847,8 @@ class GraspEnv:
         self.obs_config = config
         self.segmap = segmap
 
-        return hmap[None], float(self.target_loc is not None)
+        self.last_obs = hmap[None], float(self.target_loc is not None)
+        return self.last_obs
 
     def set_seed(self, idx):
         self.seed = idx
@@ -870,6 +873,8 @@ class GraspEnv:
         pos, rot = eu.transform(pos, rot, frame)
 
         num_placed_before = len(self.check_placed_objects())
+
+        print(self.seed, 'loc', self.target_loc, self.last_obs[1])
 
         if 'bin' in self.target_loc:
             hand_z = 0.6
@@ -954,23 +959,33 @@ class GraspEnv:
             action_type = 'place'
 
         reward = 0
+        r2 = 0
         done = False
 
         # print(action_type)
+        # RANDOM ACTIONS!
+        #if self.target_loc is not None:
+        #    assert action_type == 'place', 'loc is {} but action is {}, {}'.format(self.target_loc, action_type, self.last_obs[1])
+        preplace = False
 
-        if action_type == 'place':
-            grasp_x = [place_py, place_px]
-            x = self.hmap_bounds[0, 0] + grasp_x[1] * self.px_size
-            y = self.hmap_bounds[1, 0] + grasp_x[0] * self.px_size
+        if self.target_loc is not None and action_type != 'place':
+            reward = -0.25
+        elif action_type == 'place':
+            if self.target_loc is None:
+                reward = -0.25
+            else:
+                grasp_x = [place_py, place_px]
+                x = self.hmap_bounds[0, 0] + grasp_x[1] * self.px_size
+                y = self.hmap_bounds[1, 0] + grasp_x[0] * self.px_size
 
-            surface_height = 0
-            self.hmap[self.hmap == 0] = surface_height - self.hmap_bounds[2, 0]
-            z = self.hmap[grasp_x[0], grasp_x[1]] + self.hmap_bounds[2, 0]
-            z += 0.24 - 0.07
+                surface_height = 0
+                self.hmap[self.hmap == 0] = surface_height - self.hmap_bounds[2, 0]
+                z = self.hmap[grasp_x[0], grasp_x[1]] + self.hmap_bounds[2, 0]
+                z += 0.24 - 0.07
 
-            place_success = self.place([x, y, z], self.obs_config['base_frame'])
+                place_success = self.place([x, y, z], self.obs_config['base_frame'])
 
-            reward = 1 if place_success else 0
+                reward = 1 if place_success else 0
         elif action_type == 'grasp':
             grasp_x = [grasp_py, grasp_px]
             num_rots = 16
@@ -985,6 +1000,7 @@ class GraspEnv:
             self.hmap[self.hmap == 0] = surface_height - self.hmap_bounds[2, 0]
             z = self.hmap[grasp_x[0], grasp_x[1]] + self.hmap_bounds[2, 0]
             z += 0.24 - 0.07
+            r2 = np.linalg.norm(np.array([grasp_px, grasp_py]) - np.array([0, 112])) / 224.0 * -0.3
 
             if self.env.grasp_primitive([x, y, z], angle, frame=self.obs_config['base_frame'], stop_at_contact=False):
                 self.env.holding_pose()
@@ -1001,17 +1017,21 @@ class GraspEnv:
                     if obj in self.placed_objects:
                         grasp_success = False
                     elif grasp_success:
+                        preplace = True
+                        self.break_collision = False
                         self.preplace()
+                        self.break_collision = True
+                        self.object_collision = False
 
                         obj = self.check_grasp()
                         if obj is None:  # object dropped while moving
                             grasp_success = False
                             self.target_loc = None
 
-                reward = 1 if grasp_success else -0.1
+                reward = (1 if grasp_success else -0.1) + r2
 
                 if grasp_success:
-                    if self.object_collision:
+                    if self.object_collision and not preplace:
                         self.stats['grasp_success_collision'] += 1
                     else:
                         self.stats['grasp_success_safe'] += 1
@@ -1047,10 +1067,10 @@ class GraspEnv:
         self.stats['object_collisions'] += int(self.object_collision)
 
         if self.furniture_collision:
-            reward = -0.25
+            reward = -0.25 + r2
             done = True
         elif self.object_collision:
-            reward = 0#min(reward * 0.1, reward)
+            reward = 0 + r2#.25#min(reward * 0.1, reward)
             done = True
 
         if done:

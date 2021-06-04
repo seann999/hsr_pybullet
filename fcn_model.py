@@ -1,13 +1,10 @@
-import torchvision.models as models
 from torch import nn
 import numpy as np
 import torch
 import torch.nn.functional as F
-import time
 
-from self_attention_cv import ViT
-from torchvision.models.segmentation import deeplabv3_resnet50
 import resnet
+
 
 class FCN(nn.Module):
     def __init__(self, num_rotations=16, use_fc=False, fast=False, debug=False):
@@ -38,6 +35,7 @@ class FCN(nn.Module):
             nn.UpsamplingBilinear2d(scale_factor=2),
             nn.Conv2d(32, out, 1, 1),
           )
+
         self.decoder = decoder(512, 16)
         #self.fcn = deeplabv3_resnet50(pretrained=False, num_classes=16)
         #self.head = nn.Sequential(

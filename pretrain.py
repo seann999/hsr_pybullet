@@ -83,7 +83,7 @@ model.cuda()
 optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
 
 train_losses, val_losses = [], []
-root = 'pretrain_results/fast'
+root = 'pretrain_results/vit_enc'
 
 try:
     os.makedirs(root)
@@ -99,7 +99,10 @@ def reg_loss(p):
 
     return loss
 
-for ep in range(1001):
+def phi(x):
+    return (x - 0.2) / 0.2
+
+for ep in range(101):
     total_loss = 0
     model.train()
 
