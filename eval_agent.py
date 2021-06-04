@@ -20,6 +20,8 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, default=None)
     parser.add_argument('--pretrain', type=str, default=None)
     parser.add_argument('--show-hmap', action='store_true')
+    parser.add_argument('--shapenet', action='store_true')
+    parser.add_argument('--idle', action='store_true')
     parser.add_argument('--debug-agent', action='store_true')
     parser.add_argument('--gui', action='store_true')
     parser.add_argument('--n-objects', type=int, default=30)
@@ -27,7 +29,7 @@ if __name__ == '__main__':
 
     config = {'depth_noise': True, 'rot_noise': True, 'action_grasp': True,
               'action_look': True, 'spawn_mode': 'circle'}
-    env = GraspEnv(config=config, n_objects=args.n_objects, connect=p.GUI if args.gui else p.DIRECT)
+    env = GraspEnv(config=config, n_objects=args.n_objects, connect=p.GUI if args.gui else p.DIRECT, ycb=not args.shapenet)
 
     class MaxAgent:
         def __init__(self):
@@ -86,8 +88,10 @@ if __name__ == '__main__':
             obs = env.reset()
             print('reset done')
 
-            #while True:
-            #    env.env.stepSimulation()
+            if args.idle:
+                for _ in range(240*2):
+                    env.env.stepSimulation()
+                continue
 
             R = 0  # return (sum of rewards)
             t = 0  # time step

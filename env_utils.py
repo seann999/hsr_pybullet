@@ -188,6 +188,8 @@ def load_obj(client, mesh_path, collision_path, rand_scale=True, area=[[0.5, 3.0
         baseInertialFramePosition=np.array(mesh.center_mass),
     )
 
+    client.changeDynamics(obj_id, -1, lateralFriction=0.25)
+
     return True, obj_id
 
 

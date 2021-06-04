@@ -556,7 +556,7 @@ class GraspEnv:
         self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 1]])
 
         self.spawn_mode = 'box'  # config['spawn_mode']
-        self.spawn_box = [[-1.5, -1, 0.4], [-0.5, 1.5, 0.6]]  # [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
+        # self.spawn_box = [[-1.5, -1, 0.4], [-0.5, 1.5, 0.6]]  # [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
         self.spawn_radius = 3
 
         self.steps = 0
@@ -564,7 +564,7 @@ class GraspEnv:
 
         self.object_collision, self.furniture_collision = False, False
 
-        self.reset_env()
+        # self.reset_env()
 
     def reset_env(self):
         # if setup_room:
@@ -732,16 +732,9 @@ class GraspEnv:
         for obj in self.obj_ids:
             self.env.c_gui.removeBody(obj)
 
-        self.obj_ids = eu.spawn_objects(self.env.c_gui, num_spawn=np.random.randint(1, 31), ycb=self.ycb)
-
-        self.placed_objects = []
-
         for id in self.obj_ids:
             self.env.c_gui.resetBasePositionAndOrientation(id, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
             # self.env.c_gui.changeDynamics(id, -1, mass=0)
-
-        # num_objs = np.random.randint(1, 30)
-        selected = np.random.permutation(self.obj_ids)# [:num_objs]
 
         self.env.reset_pose()
 
@@ -751,57 +744,81 @@ class GraspEnv:
             # 'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
         }, sim=False)
 
-        for i, id in enumerate(selected):
-            if i == 1 and np.random.random() < 0.5:
-                self.env.c_gui.resetBasePositionAndOrientation(id, [-2.7, -0.75, 0.6], R.random().as_quat())
-            elif i == 2 and np.random.random() < 0.5:
-                self.env.c_gui.resetBasePositionAndOrientation(id, [-2.7, -0.45, 0.6], R.random().as_quat())
-            elif np.random.random() < 0.1:
-                c = random.choice([0, 1, 2, 3])
+        self.obj_ids = []
+        self.placed_objects = []
 
-                if c == 0:
-                    self.env.c_gui.resetBasePositionAndOrientation(id, [-2.7, -1.7, 0.4], R.random().as_quat())
-                elif c == 1:
-                    self.env.c_gui.resetBasePositionAndOrientation(id, [-2.7, -1.2, 0.4], R.random().as_quat())
-            else:
-                for t in range(10):
-                    if self.spawn_mode == 'box':
-                        x = np.random.uniform(self.spawn_box[0][0], self.spawn_box[1][0])
-                        y = np.random.uniform(self.spawn_box[0][1], self.spawn_box[1][1])
-                        z = np.random.uniform(self.spawn_box[0][2], self.spawn_box[1][2])
-                    else:
-                        theta = np.random.uniform(0, 2.0 * np.pi)
-                        dist = np.random.uniform(0.5, self.spawn_radius)
-                        x, y = np.cos(theta) * dist, np.sin(theta) * dist
-                        z = np.random.uniform(0.4, 0.6)
+        def spawn_object(id, area, tries=10):
+            for _ in range(tries):
+                if self.spawn_mode == 'box':
+                    x = np.random.uniform(area[0][0], area[1][0])
+                    y = np.random.uniform(area[0][1], area[1][1])
+                    z = np.random.uniform(area[0][2], area[1][2])
+                else:
+                    theta = np.random.uniform(0, 2.0 * np.pi)
+                    dist = np.random.uniform(0.5, self.spawn_radius)
+                    x, y = np.cos(theta) * dist, np.sin(theta) * dist
+                    z = np.random.uniform(0.4, 0.6)
 
-                    pos = (x, y, z)
+                pos = (x, y, z)
 
-                    self.env.c_gui.resetBasePositionAndOrientation(id, pos, R.random().as_quat())
-                    valid = True
+                self.env.c_gui.resetBasePositionAndOrientation(id, pos, R.random().as_quat())
+                valid = True
 
-                    if len(self.env.c_gui.getClosestPoints(id, self.env.robot.id, 0)) > 0\
-                            or any([len(self.env.c_gui.getClosestPoints(id, fid, 0)) > 0 for fid in self.furn_ids.values()]):
-                        valid = False
-                    else:
-                        for prev in selected[:i]:
-                            if len(self.env.c_gui.getClosestPoints(id, prev, 0)) > 0:
-                                valid = False
-                                break
+                if len(self.env.c_gui.getClosestPoints(id, self.env.robot.id, 0)) > 0\
+                        or any([len(self.env.c_gui.getClosestPoints(id, fid, 0)) > 0 for fid in self.furn_ids.values()]):
+                    valid = False
+                else:
+                    for prev in self.obj_ids:
+                        if len(self.env.c_gui.getClosestPoints(id, prev, 0)) > 0:
+                            valid = False
+                            break
 
-                    if valid:
-                        break
+                if valid:
+                    return True
 
-            self.env.c_gui.changeDynamics(id, -1, lateralFriction=0.25)
+            return False
+
+        def spawn_objects(max_num, area, min_num=1):
+            for i, id in enumerate(eu.spawn_objects(self.env.c_gui, num_spawn=np.random.randint(min_num, max_num), ycb=self.ycb)):
+                success = spawn_object(id, area)
+                if success:
+                    self.obj_ids.append(id)
+                else:
+                    self.env.c_gui.removeBody(id)
+
+        # clean area
+        spawn_objects(20, [[-1.5, -1, 0.4], [-0.5, 1.5, 0.6]])
+        spawn_objects(5, [[-0.5, -0.5, 0.6], [-0.1, 0.5, 0.8]])
+        spawn_objects(5, [[-0.5, 1, 0.8], [-0.1, 1.5, 1.0]])
+
+        # trays
+        spawn_objects(3, np.array([[-2.75, -0.8, 0.6], [-2.65, -0.7, 0.7]]), 0)
+        spawn_objects(3, np.array([[-2.75, -0.5, 0.6], [-2.65, -0.4, 0.7]]), 0)
+
+        # bins
+        spawn_objects(3, np.array([[-2.75, -1.75, 0.4], [-2.65, -1.65, 0.5]]), 0)
+        spawn_objects(3, np.array([[-2.75, -1.25, 0.4], [-2.65, -1.15, 0.5]]), 0)
+
+        # drawers
+        spawn_objects(3, np.array([[-2.55, 0.65, 0.5], [-2.25, 0.75, 0.6]]), 0)
+        spawn_objects(3, np.array([[-2.55, 0.95, 0.5], [-2.25, 1.05, 0.6]]), 0)
+
+        # containers
+        pos = self.env.c_gui.getBasePositionAndOrientation(self.furn_ids['container_left'])[0]
+        spawn_objects(2, np.array([[pos[0] - 0.05, pos[1] - 0.05, pos[2] + 0.1], [pos[0] + 0.05, pos[1] + 0.05, pos[2] + 0.2]]), 0)
+
+        pos = self.env.c_gui.getBasePositionAndOrientation(self.furn_ids['container_right'])[0]
+        spawn_objects(2, np.array(
+            [[pos[0] - 0.1, pos[1] - 0.1, pos[2] + 0.1], [pos[0] + 0.1, pos[1] + 0.1, pos[2] + 0.2]]), 0)
 
         # print('settle')
-        x = [self.env.c_gui.getBasePositionAndOrientation(i)[0] for i in selected]
-        for t in range(240 * 10):
+        x = [self.env.c_gui.getBasePositionAndOrientation(i)[0] for i in self.obj_ids]
+        for t in range(240 * 5):
             self.env.c_gui.stepSimulation()
-            y = [self.env.c_gui.getBasePositionAndOrientation(i)[0] for i in selected]
+            y = [self.env.c_gui.getBasePositionAndOrientation(i)[0] for i in self.obj_ids]
 
             diff = np.abs(np.array(x) - np.array(y))
-            if t > 10 and np.all(diff < 1e-3):
+            if t > 10 and np.all(diff < 1e-4):
                 # print('breaking at', t)
                 break
 
