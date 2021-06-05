@@ -44,6 +44,7 @@ def generate(seed, indices, args):
 
         cv2.imwrite(os.path.join(d, 'rgb.png'), env.rgb[:, :, ::-1])
         cv2.imwrite(os.path.join(d, 'depth.png'), np.uint16(env.depth * 1000))
+        cv2.imwrite(os.path.join(d, 'noisy_depth.png'), np.uint16(env.noisy_depth * 1000))
         cv2.imwrite(os.path.join(d, 'seg.png'), env.seg)
         cv2.imwrite(os.path.join(d, 'cmap.png'), env.cmap[:, :, ::-1])
         cv2.imwrite(os.path.join(d, 'hmap.png'), np.uint16(env.hmap * 1000))

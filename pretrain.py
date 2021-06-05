@@ -4,7 +4,9 @@ import numpy as np
 import os
 import torch
 import json
+import argparse
 
+from matplotlib.colors import ListedColormap
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split
 import matplotlib.pyplot as plt
@@ -12,61 +14,108 @@ from fcn_model import FCN
 #from train_agent import phi
 
 
-def phi(x):
-    return (x - 0.2) / 0.2
+CLASSES = {
+    'walls': 3,
+    'shelf': 4,
+    'bin_left': 5,
+    'bin_right': 6,
+    'stair_drawer': 7,
+    'drawer_bottom': 8,
+    'knob_bottom': 9,
+    'drawer_left': 10,
+    'knob_left': 11,
+    'drawer_top': 12,
+    'knob_top': 13,
+    'tall_table': 14,
+    'long_table': 15,
+    'long_table_placing': 16,
+    'tray_left': 17,
+    'tray_right': 18,
+    'container_left': 19,
+    'container_right': 20,
+}
 
 
 class SegData:
-    def __init__(self, train):
-        self.root = 'pretrain_data2'
+    def __init__(self, root, train, classify=False, hmap=False):
+        self.root = root
         self.files = os.listdir(self.root)
+        self.classify = classify
+        self.hmap = hmap
 
         if train:
-            self.files = self.files[:16000]
+            self.files = self.files[:8000]
         else:
-            self.files = self.files[16000:20000]
+            self.files = self.files[8000:10000]
 
     def __len__(self):
         return len(self.files)
 
     def __getitem__(self, idx):
-        hmap = cv2.imread(os.path.join(self.root, self.files[idx], 'hmap.png'), -1)
+        hmap = cv2.imread(os.path.join(self.root, self.files[idx], 'hmap.png' if self.hmap else 'noisy_depth.png'), -1)
 
-        angle = np.random.randint(low=0, high=360)
-        image_center = (112, 112)
-        rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
+        #angle = np.random.randint(low=0, high=360)
+        #image_center = (112, 112)
+        #rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
         # hmap = cv2.warpAffine(hmap, rot_mat, (224, 224))
 
         hmap = (hmap / 1000.0).astype(np.float32)[None]
         #gtmap = cv2.imread(os.path.join(self.root, self.files[idx], 'maskmap.png'))[:, :, 0] > 0
-        segmap = cv2.imread(os.path.join(self.root, self.files[idx], 'segmap.png'))[:, :, 0]
+        segmap = cv2.imread(os.path.join(self.root, self.files[idx], 'segmap.png' if self.hmap else 'seg.png'), -1)#.astype(np.float32)
         info = json.load(open(os.path.join(self.root, self.files[idx], 'ids.json'), 'r'))
         # furns = info['furn_ids']
         # gtmap = np.logical_or.reduce([segmap == furns[i] for i in [11, 12, 13, 14]])
-        objs = [i for i in info['obj_ids'] if (segmap == i).sum() > 0]
-        if len(objs) > 0:
-            coords = [np.stack(np.where(segmap == i)).T.mean(0) for i in objs]
-            dists = np.linalg.norm(np.array(coords) - np.array([[112, 0]]), axis=1)
-            nearest = objs[np.argmin(dists)]
-            gtmap = segmap == nearest
+        if self.classify:
+            placed = info.get('placed_obj_ids', [])
+            gtmap = np.zeros_like(segmap).astype(np.int64)
+
+            for id in info['obj_ids']:
+                if id in placed:
+                    gtmap[segmap == id] = 2
+                else:
+                    gtmap[segmap == id] = 1
+
+            gtmap[segmap == info['robot_id']] = 21
+
+            for name, cls_idx in CLASSES.items():
+                gtmap[segmap == info['furn_ids'][name]] = cls_idx
         else:
-            gtmap = np.zeros_like(segmap)
-        gtmap = gtmap.astype(np.float32)
-        # gtmap = cv2.warpAffine(gtmap, rot_mat, (224, 224))
+            placed = info.get('placed_obj_ids', [])
+            objs = [i for i in info['obj_ids'] if i not in placed and (segmap == i).sum() > 0]
+            if len(objs) > 0:
+                coords = [np.stack(np.where(segmap == i)).T.mean(0) for i in objs]
+                dists = np.linalg.norm(np.array(coords) - np.array([[112, 0]]), axis=1)
+                nearest = objs[np.argmin(dists)]
+                gtmap = segmap == nearest
+            else:
+                gtmap = np.zeros_like(segmap)
+            gtmap = gtmap.astype(np.float32)
+            # gtmap = cv2.warpAffine(gtmap, rot_mat, (224, 224))
 
         return hmap, gtmap
 
 
-def create_fig(y_hat, y):
+def create_fig(y_hat, y, classification=False):
     fig, ax = plt.subplots(3, 8)
     #y_hat = F.sigmoid(y_hat).detach().cpu().numpy()
     y_hat = y_hat.detach().cpu().numpy()
     y = y.cpu().numpy()
 
+    colors = plt.get_cmap('tab20')
+    newcolors = colors(np.arange(20))
+    newcolors = np.concatenate([np.array([[0, 0, 0, 1.0]]), newcolors], 0)
+    newcmp = ListedColormap(newcolors)
+
     for i in range(8):
         ax[0, i].imshow(x[i, 0])
-        ax[1, i].imshow(y_hat[i, 0], vmin=0, vmax=1)
-        ax[2, i].imshow(y[i, 0], vmin=0, vmax=1)
+
+        if classification:
+            y = y.astype(np.uint8)
+            ax[1, i].imshow(y_hat[i].argmax(axis=0), cmap=newcmp, interpolation='nearest')
+            ax[2, i].imshow(y[i], cmap=newcmp, interpolation='nearest')
+        else:
+            ax[1, i].imshow(y_hat[i, 0], vmin=0, vmax=1)
+            ax[2, i].imshow(y[i, 0], vmin=0, vmax=1)
         #ax[3, i].imshow(g[i, 0], vmin=0, vmax=1)
         #ax[4, i].imshow(p[i, 0], vmin=0, vmax=1)
 
@@ -75,91 +124,101 @@ def create_fig(y_hat, y):
 
     return fig
 
-model = FCN(num_rotations=16, use_fc=True, fast=True, debug=True)
-train_loader = DataLoader(SegData(True), batch_size=32, num_workers=8, shuffle=True, pin_memory=True, drop_last=True)
-val_loader = DataLoader(SegData(False), batch_size=8, num_workers=8, shuffle=True, pin_memory=True, drop_last=True)
 
-model.cuda()
-optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--data', type=str, default='pretrain_shapenet')
+    parser.add_argument('--outdir', type=str, default='pretrain_results/test00')
+    parser.add_argument('--classify', action='store_true')
+    parser.add_argument('--no-hmap', action='store_true')
+    args = parser.parse_args() 
 
-train_losses, val_losses = [], []
-root = 'pretrain_results/vit_enc'
+    def phi(x):
+        if args.no_hmap:
+            return x
 
-try:
-    os.makedirs(root)
-except:
-    pass
+        return (x - 0.2) / 0.2
 
-def reg_loss(p):
-    loss = 0
+    model = FCN(num_rotations=22 if args.classify else 16, use_fc=True, fast=True, debug=True)
+    train_loader = DataLoader(SegData(args.data, True, args.classify, hmap=not args.no_hmap), batch_size=16 if args.no_hmap else 32, num_workers=8, shuffle=True, pin_memory=True, drop_last=True)
+    val_loader = DataLoader(SegData(args.data, False, args.classify, hmap=not args.no_hmap), batch_size=8, num_workers=8, shuffle=True, pin_memory=True, drop_last=True)
 
-    #for p in model.fc.parameters():
-    #    loss += p.abs().sum()
-    loss = 0 * torch.abs(p).sum(3).sum(2).sum(1).mean()
+    model.cuda()
+    optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
 
-    return loss
+    train_losses, val_losses = [], []
+    root = args.outdir
 
-def phi(x):
-    return (x - 0.2) / 0.2
+    try:
+        os.makedirs(root)
+    except:
+        pass
 
-for ep in range(101):
-    total_loss = 0
-    model.train()
+    def calc_loss(y_hat, y):
+        if args.classify:
+            loss = F.cross_entropy(y_hat, y.cuda(), reduction='none').sum(2).sum(1).mean()
+        else:
+            y = y.unsqueeze(1).cuda()
+            loss = (y_hat - y).pow(2).sum(3).sum(2).sum(1).mean()
 
-    for i, (x, y) in enumerate(train_loader):
-        y_hat = model.forward(phi(x).cuda())
-        y = y.unsqueeze(1).cuda()
-        #loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
-        loss = (y_hat - y).pow(2).sum(3).sum(2).sum(1).mean()
+        return loss
 
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+    for ep in range(101):
+        total_loss = 0
+        model.train()
 
-        loss = loss.cpu().detach().numpy()
-        total_loss += loss
+        for i, (x, y) in enumerate(train_loader):
+            y_hat = model.forward(phi(x).cuda())
+            #loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
+            loss = calc_loss(y_hat, y)
 
-        print(i, len(train_loader), loss)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-    loss_avg = total_loss / len(train_loader)
-    print(loss_avg)
-    train_losses.append(min(1000,loss_avg))
+            loss = loss.cpu().detach().numpy()
+            total_loss += loss
 
-    fig = create_fig(y_hat, y)
-    fig.savefig(root + '/train_{:05d}.png'.format(ep))
+            print(i, len(train_loader), loss)
 
-    del y_hat, loss
-    torch.cuda.empty_cache()
+        loss_avg = total_loss / len(train_loader)
+        print(loss_avg)
+        train_losses.append(loss_avg)
 
-    total_loss = 0
-    model.eval()
+        fig = create_fig(y_hat, y, classification=args.classify)
+        fig.savefig(os.path.join(root, 'train_{:05d}.png'.format(ep)))
 
-    for i, (x, y) in enumerate(val_loader):
-        y_hat = model.forward(phi(x).cuda())
-        y = y.unsqueeze(1).cuda()
-        #loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
-        loss = (y_hat - y).pow(2).sum(3).sum(2).sum(1).mean()
+        del y_hat, loss
+        torch.cuda.empty_cache()
 
-        loss = loss.cpu().detach().numpy()
-        total_loss += loss
+        total_loss = 0
+        model.eval()
 
-        print(i, len(val_loader), loss)
+        for i, (x, y) in enumerate(val_loader):
+            y_hat = model.forward(phi(x).cuda())
+            #loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
+            loss = calc_loss(y_hat, y)
 
-    loss_avg = total_loss / len(val_loader)
-    print(loss_avg)
-    val_losses.append(min(1000,loss_avg))
+            loss = loss.cpu().detach().numpy()
+            total_loss += loss
 
-    fig = create_fig(y_hat, y)
-    fig.savefig(root + '/val_{:05d}.png'.format(ep))
+            print(i, len(val_loader), loss)
 
-    plt.clf()
-    plt.figure(figsize=(4, 3))
-    plt.yscale('log')
-    plt.plot(train_losses, label='train')
-    plt.plot(val_losses, label='val')
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(root + '/loss.png')
+        loss_avg = total_loss / len(val_loader)
+        print(loss_avg)
+        val_losses.append(loss_avg)
 
-    if ep % 10 == 0:
-        torch.save(model.state_dict(), root + '/weights_{:03d}.p'.format(ep))
+        fig = create_fig(y_hat, y, classification=args.classify)
+        fig.savefig(os.path.join(root, 'val_{:05d}.png'.format(ep)))
+
+        plt.clf()
+        plt.figure(figsize=(4, 3))
+        plt.yscale('log')
+        plt.plot(train_losses, label='train')
+        plt.plot(val_losses, label='val')
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(root, 'loss.png'))
+
+        if ep % 10 == 0:
+            torch.save(model.state_dict(), os.path.join(root, '/weights_{:03d}.p'.format(ep)))

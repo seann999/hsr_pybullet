@@ -36,7 +36,7 @@ class FCN(nn.Module):
             nn.Conv2d(32, out, 1, 1),
           )
 
-        self.decoder = decoder(512, 16)
+        self.decoder = decoder(512, num_rotations)
         #self.fcn = deeplabv3_resnet50(pretrained=False, num_classes=16)
         #self.head = nn.Sequential(
         #    nn.Conv2d(32, 32, 1, 1),

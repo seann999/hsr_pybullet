@@ -857,14 +857,14 @@ class GraspEnv:
         rgb, depth, seg, config = self.env.get_heightmap(only_render=True, return_seg=True, bounds=self.hmap_bounds,
                                                          px_size=self.px_size)
 
-        hmap, cmap, segmap = to_maps(rgb, depth, seg, config, self.hmap_bounds, self.px_size,
+        hmap, cmap, segmap, noisy_depth = to_maps(rgb, depth, seg, config, self.hmap_bounds, self.px_size,
                                      depth_noise=self.config['depth_noise'], rot_noise=self.config['rot_noise'])
-
         assert hmap.shape[0] == self.res and hmap.shape[1] == self.res, 'resolutions do not match {} {}'.format(
             hmap.shape, self.res)
 
         self.rgb = rgb
         self.depth = depth
+        self.noisy_depth = noisy_depth
         self.seg = seg
         self.cmap = cmap
 
@@ -1127,8 +1127,8 @@ def to_maps(rgb, depth, seg, config, bounds, px_size, depth_noise=False, pos_noi
         config['rotation'] = (R.from_rotvec(mag * rvec) * rot).as_quat()
 
     hmaps, cmaps = ru.reconstruct_heightmaps(
-        [rgb], [depth], [config], bounds, px_size)
+        [rgb], [depth.copy()], [config], bounds, px_size)
     _, segmaps = ru.reconstruct_heightmaps(
-        [seg[:, :, None]], [depth], [config], bounds, px_size)
+        [seg[:, :, None]], [depth.copy()], [config], bounds, px_size)
 
-    return hmaps[0], cmaps[0], segmaps[0]
+    return hmaps[0], cmaps[0], segmaps[0], np.float32(depth)
