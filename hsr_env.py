@@ -124,8 +124,6 @@ class HSREnv:
         self.c_gui.setAdditionalSearchPath(pybullet_data.getDataPath())
         self.c_direct.setAdditionalSearchPath(pybullet_data.getDataPath())
 
-        self.reset_env()
-
         self.break_criteria = lambda: False
 
         # print(self.robot.get_joint_infos())
@@ -515,118 +513,49 @@ DEFAULT_CONFIG = {
 }
 
 
-class GraspEnv:
-    def __init__(self, n_objects=70, config=DEFAULT_CONFIG, setup_room=True,
-                 reset_interval=1, ycb=True, full_range=False, **kwargs):
-        self.env = HSREnv(**kwargs)
-        self.reset_interval = reset_interval
-        self.check_object_collision = True
-        self.break_collision = True
+class WRSEnv(HSREnv):
+    def __init__(self, ycb=True, full_range=False, **kwargs):
+        super(WRSEnv, self).__init__(kwargs['connect'])
+
         self.ycb = ycb
         self.full_range = full_range
 
         self.obj_ids = []
         self.furn_ids = []
         self.placed_objects = []
-        # self.obj_ids = eu.spawn_ycb(self.env.c_gui)#, ids=list(range(n_objects)))
 
         self.res = 224
         self.px_size = 3.0 / self.res
         self.num_rots = 16
-        self.stats = {
-            'object_collisions': 0,
-            'furniture_collisions': 0,
-            'episodes': 0,
-            'grasp_success_collision': 0,
-            'grasp_success_safe': 0,
-            'grasp_failure_collision': 0,
-            'grasp_failure_safe': 0,
-            'grasp_attempts': 0,
-            'oob_actions': 0,
-        }
-
-        self.observation_space = Box(-1, 1, (self.res, self.res))
-        self.config = config
-        self.seed = None
-
-        n_actions = 18 * self.res * self.res
-        self.action_space = Discrete(n_actions)
-
-        self.hmap, self.obs_config, self.segmap = None, None, None
-
-        self.dummy = np.zeros((3, self.res, self.res), dtype=np.float32)
-        self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 1]])
-
-        self.spawn_mode = 'box'  # config['spawn_mode']
-        # self.spawn_box = [[-1.5, -1, 0.4], [-0.5, 1.5, 0.6]]  # [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
-        self.spawn_radius = 3
-
-        self.steps = 0
-        self.ep_counter = 0
-
-        self.object_collision, self.furniture_collision = False, False
-
-        # self.reset_env()
-
-    def reset_env(self):
-        # if setup_room:
-        self.furn_ids = self.generate_room(full_range=self.full_range)
-        # else:
-        #    self.furn_ids = {}
-
-        def wrapper(fn):
-            def wrapper():
-                fn()
-
-                if self.check_object_collision and not self.object_collision:
-                    for id in self.obj_ids:
-                        if len(self.env.c_gui.getClosestPoints(self.env.robot.id, id, 0, 15, -1)) > 0:
-                            self.object_collision = True
-                            break
-
-                if not self.furniture_collision:
-                    ks = [k for k in self.furn_ids.keys() if 'container' not in k and 'tray' not in k]
-                    for id in [self.furn_ids[k] for k in ks]:
-                        if len(self.env.c_gui.getClosestPoints(self.env.robot.id, id, 0)) > 0:
-                            self.furniture_collision = True
-                            break
-
-            return wrapper
-
-        def break_criteria():
-            return self.break_collision and (self.furniture_collision or self.object_collision)
-
-        self.env.c_gui.stepSimulation = wrapper(self.env.c_gui.stepSimulation)
-        self.env.break_criteria = break_criteria
 
     def generate_room(self, drawers_open=True, full_range=False):
         random_containers = True
         rot_noise = np.pi / 180 * 5
         ids = {}
 
-        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_frame/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (0, 0, 0), (0, 0, 0, 1))
+        x = self.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_frame/model.sdf')[0]
+        self.c_gui.resetBasePositionAndOrientation(x, (0, 0, 0), (0, 0, 0, 1))
         ids['walls'] = x
 
-        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_bookshelf/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (2.7, -1, 0), p.getQuaternionFromEuler([0, 0, -1.57]))
+        x = self.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_bookshelf/model.sdf')[0]
+        self.c_gui.resetBasePositionAndOrientation(x, (2.7, -1, 0), p.getQuaternionFromEuler([0, 0, -1.57]))
         ids['shelf'] = x
 
         pos_noise = 0.05
-        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_bin_black/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -1.7 + np.random.uniform(-1, 1) * pos_noise, 0),
+        x = self.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_bin_black/model.sdf')[0]
+        self.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -1.7 + np.random.uniform(-1, 1) * pos_noise, 0),
                                                        p.getQuaternionFromEuler([0, 0, np.random.uniform(-1, 1) * rot_noise]))
-        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.3, 1))
+        self.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.3, 1))
         ids['bin_left'] = x
 
-        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_bin_green/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -1.2 + np.random.uniform(-1, 1) * pos_noise, 0),
+        x = self.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_bin_green/model.sdf')[0]
+        self.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -1.2 + np.random.uniform(-1, 1) * pos_noise, 0),
                                                        p.getQuaternionFromEuler([0, 0, np.random.uniform(-1, 1) * rot_noise]))
-        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0, 0.7, 0, 1))
+        self.c_gui.changeVisualShape(x, -1, rgbaColor=(0, 0.7, 0, 1))
         ids['bin_right'] = x
 
-        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_stair_like_drawer/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7, 1, 0), (0, 0, 0, 1))
+        x = self.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_stair_like_drawer/model.sdf')[0]
+        self.c_gui.resetBasePositionAndOrientation(x, (-2.7, 1, 0), (0, 0, 0, 1))
         ids['stair_drawer'] = x
 
         random_knob = True
@@ -634,15 +563,15 @@ class GraspEnv:
         pull_noise = 0.05
 
         def spawn_drawer(pos):
-            x = self.env.c_gui.loadSDF(drawer_path)[0]
-            self.env.c_gui.resetBasePositionAndOrientation(x, pos, (0, 0, 0, 1))
-            self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(1, 0.5, 0, 1))
+            x = self.c_gui.loadSDF(drawer_path)[0]
+            self.c_gui.resetBasePositionAndOrientation(x, pos, (0, 0, 0, 1))
+            self.c_gui.changeVisualShape(x, -1, rgbaColor=(1, 0.5, 0, 1))
             random_offset = np.array([
                 np.random.uniform(-0.01, 0.01),
                 np.random.uniform(-0.01, 0.01),
                 np.random.uniform(-0.03, 0.03),
             ])
-            knob_id = eu.spawn_knob(self.env.c_gui, np.array(pos) + np.array([0.205, 0, 0.04]) + random_offset)
+            knob_id = eu.spawn_knob(self.c_gui, np.array(pos) + np.array([0.205, 0, 0.04]) + random_offset)
             return x, knob_id
 
         if full_range:
@@ -672,44 +601,195 @@ class GraspEnv:
         ids['drawer_top'] = drawer_id
         ids['knob_top'] = knob_id
 
-        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_tall_table/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-0.3 + np.random.uniform(-1, 1) * pos_noise, 1.2 + np.random.uniform(-1, 1) * pos_noise, 0), p.getQuaternionFromEuler([0, 0, np.random.uniform(-1, 1) * rot_noise]))
+        x = self.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_tall_table/model.sdf')[0]
+        self.c_gui.resetBasePositionAndOrientation(x, (-0.3 + np.random.uniform(-1, 1) * pos_noise, 1.2 + np.random.uniform(-1, 1) * pos_noise, 0), p.getQuaternionFromEuler([0, 0, np.random.uniform(-1, 1) * rot_noise]))
         ids['tall_table'] = x
 
-        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_long_table/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-0.3 + np.random.uniform(-1, 1) * pos_noise, 0.2 + np.random.uniform(-1, 1) * pos_noise, 0), p.getQuaternionFromEuler([0, 0, 1.57 + np.random.uniform(-1, 1) * rot_noise]))
+        x = self.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_long_table/model.sdf')[0]
+        self.c_gui.resetBasePositionAndOrientation(x, (-0.3 + np.random.uniform(-1, 1) * pos_noise, 0.2 + np.random.uniform(-1, 1) * pos_noise, 0), p.getQuaternionFromEuler([0, 0, 1.57 + np.random.uniform(-1, 1) * rot_noise]))
         ids['long_table'] = x
 
-        x = self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_long_table/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.3 + np.random.uniform(-1, 1) * pos_noise, 0), p.getQuaternionFromEuler([0, 0, 1.57 + np.random.uniform(-1, 1) * rot_noise]))
+        x = self.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_long_table/model.sdf')[0]
+        self.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.3 + np.random.uniform(-1, 1) * pos_noise, 0), p.getQuaternionFromEuler([0, 0, 1.57 + np.random.uniform(-1, 1) * rot_noise]))
         ids['long_table_placing'] = x
 
         pos_noise = 0.03
-        x = eu.load_container(self.env.c_gui) if random_containers else self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_tray/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.75 + np.random.uniform(-1, 1) * pos_noise, 0.401),
+        x = eu.load_container(self.c_gui) if random_containers else self.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_tray/model.sdf')[0]
+        self.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.75 + np.random.uniform(-1, 1) * pos_noise, 0.401),
                                                        p.getQuaternionFromEuler([0, 0, 1.57 + np.random.uniform(-1, 1) * rot_noise]))
-        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.3, 1))
+        self.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.3, 1))
         ids['tray_left'] = x
 
-        x = eu.load_container(self.env.c_gui) if random_containers else self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_tray/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.45 + np.random.uniform(-1, 1) * pos_noise, 0.401),
+        x = eu.load_container(self.c_gui) if random_containers else self.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_tray/model.sdf')[0]
+        self.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.45 + np.random.uniform(-1, 1) * pos_noise, 0.401),
                                                        p.getQuaternionFromEuler([0, 0, 1.57 + np.random.uniform(-1, 1) * rot_noise]))
-        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.3, 1))
+        self.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.3, 1))
         ids['tray_right'] = x
 
-        x = eu.load_container(self.env.c_gui, shape='left container') if random_containers else self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_container_a/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.2 + np.random.uniform(-1, 1) * pos_noise, 0.401),
+        x = eu.load_container(self.c_gui, shape='left container') if random_containers else self.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_container_a/model.sdf')[0]
+        self.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -0.2 + np.random.uniform(-1, 1) * pos_noise, 0.401),
                                                        p.getQuaternionFromEuler([0, 0, np.random.uniform(-1, 1) * rot_noise]))
-        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.8, 0.0, 0.0, 1))
+        self.c_gui.changeVisualShape(x, -1, rgbaColor=(0.8, 0.0, 0.0, 1))
         ids['container_left'] = x
 
-        x = eu.load_container(self.env.c_gui, shape='right container') if random_containers else self.env.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_container_b/model.sdf')[0]
-        self.env.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, 0.1 + np.random.uniform(-1, 1) * pos_noise, 0.401),
+        x = eu.load_container(self.c_gui, shape='right container') if random_containers else self.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_container_b/model.sdf')[0]
+        self.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, 0.1 + np.random.uniform(-1, 1) * pos_noise, 0.401),
                                                        p.getQuaternionFromEuler([0, 0, np.random.uniform(-1, 1) * rot_noise]))
-        self.env.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.2, 1))
+        self.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.2, 1))
         ids['container_right'] = x
 
         return ids
+
+    def reset(self):
+        self.c_gui.resetSimulation()
+        self.c_direct.resetSimulation()
+        super().reset_env()
+        self.furn_ids = self.generate_room(full_range=self.full_range)
+
+        for obj in self.obj_ids:
+            self.c_gui.removeBody(obj)
+        #     self.c_gui.resetBasePositionAndOrientation(id, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
+
+        self.reset_pose()
+
+        self.move_joints({
+            'joint_rz': np.random.uniform(-np.pi, np.pi),
+            'head_tilt_joint': np.random.uniform(-1.57, 0),
+            # 'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
+        }, sim=False)
+
+        self.obj_ids = []
+        self.placed_objects = []
+
+        def spawn_objects(max_num, area, min_num=1):
+            coll_ids = [self.robot.id] + list(self.furn_ids.values()) + self.obj_ids
+
+            for i, id in enumerate(
+                    eu.spawn_objects(self.c_gui, num_spawn=np.random.randint(min_num, max_num), ycb=self.ycb)):
+                success = setup_object(self.c_gui, id, coll_ids, area)
+                if success:
+                    self.obj_ids.append(id)
+                else:
+                    self.c_gui.removeBody(id)
+
+        # clean area
+        spawn_objects(20, [[-1.5, -1, 0.4], [-0.5, 1.5, 0.6]])
+        spawn_objects(5, [[-0.5, -0.5, 0.6], [-0.1, 0.5, 0.8]])
+        spawn_objects(5, [[-0.5, 1, 0.8], [-0.1, 1.5, 1.0]])
+
+        # trays
+        spawn_objects(3, np.array([[-2.75, -0.8, 0.6], [-2.65, -0.7, 0.7]]), 0)
+        spawn_objects(3, np.array([[-2.75, -0.5, 0.6], [-2.65, -0.4, 0.7]]), 0)
+
+        # bins
+        spawn_objects(3, np.array([[-2.75, -1.75, 0.4], [-2.65, -1.65, 0.5]]), 0)
+        spawn_objects(3, np.array([[-2.75, -1.25, 0.4], [-2.65, -1.15, 0.5]]), 0)
+
+        # drawers
+        spawn_objects(3, np.array([[-2.55, 0.65, 0.5], [-2.25, 0.75, 0.6]]), 0)
+        spawn_objects(3, np.array([[-2.55, 0.95, 0.5], [-2.25, 1.05, 0.6]]), 0)
+
+        # containers
+        pos = self.c_gui.getBasePositionAndOrientation(self.furn_ids['container_left'])[0]
+        spawn_objects(2, np.array(
+            [[pos[0] - 0.05, pos[1] - 0.05, pos[2] + 0.1], [pos[0] + 0.05, pos[1] + 0.05, pos[2] + 0.2]]), 0)
+
+        pos = self.c_gui.getBasePositionAndOrientation(self.furn_ids['container_right'])[0]
+        spawn_objects(2, np.array(
+            [[pos[0] - 0.1, pos[1] - 0.1, pos[2] + 0.1], [pos[0] + 0.1, pos[1] + 0.1, pos[2] + 0.2]]), 0)
+
+        # print('settle')
+        x = [self.c_gui.getBasePositionAndOrientation(i)[0] for i in self.obj_ids]
+        for t in range(240 * 5):
+            self.c_gui.stepSimulation()
+            y = [self.c_gui.getBasePositionAndOrientation(i)[0] for i in self.obj_ids]
+
+            diff = np.abs(np.array(x) - np.array(y))
+            if t > 10 and np.all(diff < 1e-4):
+                # print('breaking at', t)
+                break
+
+            x = y
+
+        self.placed_objects = self.check_placed_objects()
+
+    def check_placed_objects(self):
+        ids = []
+        ks = [k for k in self.furn_ids.keys() if 'container' in k or 'tray' in k or 'drawer' in k or 'bin' in k]
+
+        for k in ks:  # trays and containers
+            points = self.c_gui.getContactPoints(bodyA=self.furn_ids[k])
+
+            for c in points:
+                if c[2] in self.obj_ids:
+                    ids.append(c[2])
+                    # self.c_gui.changeVisualShape(c[2], -1, rgbaColor=(1, 0, 0, 1))
+
+        return list(set(ids))
+
+
+class GraspEnv(WRSEnv):
+    def __init__(self, n_objects=70, config=DEFAULT_CONFIG, setup_room=True,
+                 reset_interval=1, **kwargs):
+        super(GraspEnv, self).__init__(**kwargs)
+        self.reset_interval = reset_interval
+        self.check_object_collision = True
+        self.break_collision = True
+
+        self.stats = {
+            'object_collisions': 0,
+            'furniture_collisions': 0,
+            'episodes': 0,
+            'grasp_success_collision': 0,
+            'grasp_success_safe': 0,
+            'grasp_failure_collision': 0,
+            'grasp_failure_safe': 0,
+            'grasp_attempts': 0,
+            'oob_actions': 0,
+        }
+
+        self.observation_space = Box(-1, 1, (self.res, self.res))
+        self.config = config
+        self.seed = None
+
+        n_actions = 18 * self.res * self.res
+        self.action_space = Discrete(n_actions)
+
+        self.hmap, self.obs_config, self.segmap = None, None, None
+
+        self.dummy = np.zeros((3, self.res, self.res), dtype=np.float32)
+        self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 1]])
+
+        self.steps = 0
+        self.ep_counter = 0
+
+        self.object_collision, self.furniture_collision = False, False
+
+    def reset_env(self):
+        def wrapper(fn):
+            def wrapper():
+                fn()
+
+                if self.check_object_collision and not self.object_collision:
+                    for id in self.obj_ids:
+                        if len(self.c_gui.getClosestPoints(self.robot.id, id, 0, 15, -1)) > 0:
+                            self.object_collision = True
+                            break
+
+                if not self.furniture_collision:
+                    ks = [k for k in self.furn_ids.keys() if 'container' not in k and 'tray' not in k]
+                    for id in [self.furn_ids[k] for k in ks]:
+                        if len(self.c_gui.getClosestPoints(self.robot.id, id, 0)) > 0:
+                            self.furniture_collision = True
+                            break
+
+            return wrapper
+
+        def break_criteria():
+            return self.break_collision and (self.furniture_collision or self.object_collision)
+
+        self.c_gui.stepSimulation = wrapper(self.c_gui.stepSimulation)
+        self.break_criteria = break_criteria
 
     def random_action_sample_fn(config, uniform=False):
         if uniform:
@@ -734,139 +814,17 @@ class GraspEnv:
         self.target_loc = None
         self.break_collision = True
 
-        if self.ep_counter % self.reset_interval == 0:
-            self.env.c_gui.resetSimulation()
-            self.env.c_direct.resetSimulation()
-            self.obj_ids = []
-            self.env.reset_env()
-            self.reset_env()
-
-        for obj in self.obj_ids:
-            self.env.c_gui.removeBody(obj)
-
-        for id in self.obj_ids:
-            self.env.c_gui.resetBasePositionAndOrientation(id, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
-            # self.env.c_gui.changeDynamics(id, -1, mass=0)
-
-        self.env.reset_pose()
-
-        self.env.move_joints({
-            'joint_rz': np.random.uniform(-np.pi, np.pi),
-            'head_tilt_joint': np.random.uniform(-1.57, 0),
-            # 'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
-        }, sim=False)
-
-        self.obj_ids = []
-        self.placed_objects = []
-
-        def spawn_object(id, area, tries=10):
-            for _ in range(tries):
-                if self.spawn_mode == 'box':
-                    x = np.random.uniform(area[0][0], area[1][0])
-                    y = np.random.uniform(area[0][1], area[1][1])
-                    z = np.random.uniform(area[0][2], area[1][2])
-                else:
-                    theta = np.random.uniform(0, 2.0 * np.pi)
-                    dist = np.random.uniform(0.5, self.spawn_radius)
-                    x, y = np.cos(theta) * dist, np.sin(theta) * dist
-                    z = np.random.uniform(0.4, 0.6)
-
-                pos = (x, y, z)
-
-                self.env.c_gui.resetBasePositionAndOrientation(id, pos, R.random().as_quat())
-                valid = True
-
-                if len(self.env.c_gui.getClosestPoints(id, self.env.robot.id, 0)) > 0\
-                        or any([len(self.env.c_gui.getClosestPoints(id, fid, 0)) > 0 for fid in self.furn_ids.values()]):
-                    valid = False
-                else:
-                    for prev in self.obj_ids:
-                        if len(self.env.c_gui.getClosestPoints(id, prev, 0)) > 0:
-                            valid = False
-                            break
-
-                if valid:
-                    return True
-
-            return False
-
-        def spawn_objects(max_num, area, min_num=1):
-            for i, id in enumerate(eu.spawn_objects(self.env.c_gui, num_spawn=np.random.randint(min_num, max_num), ycb=self.ycb)):
-                success = spawn_object(id, area)
-                if success:
-                    self.obj_ids.append(id)
-                else:
-                    self.env.c_gui.removeBody(id)
-
-        # clean area
-        spawn_objects(20, [[-1.5, -1, 0.4], [-0.5, 1.5, 0.6]])
-        spawn_objects(5, [[-0.5, -0.5, 0.6], [-0.1, 0.5, 0.8]])
-        spawn_objects(5, [[-0.5, 1, 0.8], [-0.1, 1.5, 1.0]])
-
-        # trays
-        spawn_objects(3, np.array([[-2.75, -0.8, 0.6], [-2.65, -0.7, 0.7]]), 0)
-        spawn_objects(3, np.array([[-2.75, -0.5, 0.6], [-2.65, -0.4, 0.7]]), 0)
-
-        # bins
-        spawn_objects(3, np.array([[-2.75, -1.75, 0.4], [-2.65, -1.65, 0.5]]), 0)
-        spawn_objects(3, np.array([[-2.75, -1.25, 0.4], [-2.65, -1.15, 0.5]]), 0)
-
-        # drawers
-        spawn_objects(3, np.array([[-2.55, 0.65, 0.5], [-2.25, 0.75, 0.6]]), 0)
-        spawn_objects(3, np.array([[-2.55, 0.95, 0.5], [-2.25, 1.05, 0.6]]), 0)
-
-        # containers
-        pos = self.env.c_gui.getBasePositionAndOrientation(self.furn_ids['container_left'])[0]
-        spawn_objects(2, np.array([[pos[0] - 0.05, pos[1] - 0.05, pos[2] + 0.1], [pos[0] + 0.05, pos[1] + 0.05, pos[2] + 0.2]]), 0)
-
-        pos = self.env.c_gui.getBasePositionAndOrientation(self.furn_ids['container_right'])[0]
-        spawn_objects(2, np.array(
-            [[pos[0] - 0.1, pos[1] - 0.1, pos[2] + 0.1], [pos[0] + 0.1, pos[1] + 0.1, pos[2] + 0.2]]), 0)
-
-        # print('settle')
-        x = [self.env.c_gui.getBasePositionAndOrientation(i)[0] for i in self.obj_ids]
-        for t in range(240 * 5):
-            self.env.c_gui.stepSimulation()
-            y = [self.env.c_gui.getBasePositionAndOrientation(i)[0] for i in self.obj_ids]
-
-            diff = np.abs(np.array(x) - np.array(y))
-            if t > 10 and np.all(diff < 1e-4):
-                # print('breaking at', t)
-                break
-
-            x = y
-        # print('settle done')
+        super().reset()
 
         hmap = self.update_obs()
 
         self.steps = 0
-
-        # import time
-        # for x in np.linspace(0, 2*np.pi, 100):
-        #     self.env.look_at([2 + np.sin(x), np.cos(x), 0])
-        #     time.sleep(0.01)
-
         self.object_collision, self.furniture_collision = False, False
-        self.placed_objects = self.check_placed_objects()
 
         return hmap
 
-    def check_placed_objects(self):
-        ids = []
-        ks = [k for k in self.furn_ids.keys() if 'container' in k or 'tray' in k or 'drawer' in k or 'bin' in k]
-
-        for k in ks:  # trays and containers
-            points = self.env.c_gui.getContactPoints(bodyA=self.furn_ids[k])
-
-            for c in points:
-                if c[2] in self.obj_ids:
-                    ids.append(c[2])
-                    # self.env.c_gui.changeVisualShape(c[2], -1, rgbaColor=(1, 0, 0, 1))
-
-        return list(set(ids))
-
     def update_obs(self):
-        rgb, depth, seg, config = self.env.get_heightmap(only_render=True, return_seg=True, bounds=self.hmap_bounds,
+        rgb, depth, seg, config = self.get_heightmap(only_render=True, return_seg=True, bounds=self.hmap_bounds,
                                                          px_size=self.px_size)
 
         hmap, cmap, segmap, noisy_depth = to_maps(rgb, depth, seg, config, self.hmap_bounds, self.px_size,
@@ -899,8 +857,8 @@ class GraspEnv:
         base_y += np.random.uniform(-0.05, 0.05)
         base_rot = np.pi + np.random.uniform(-10/180*np.pi, 10/180*np.pi)
 
-        self.env.move_base(base_x, base_y, base_rot)
-        self.env.move_joints({
+        self.move_base(base_x, base_y, base_rot)
+        self.move_joints({
             'head_tilt_joint': np.random.uniform(-np.pi*0.4, -np.pi*0.2),
         }, sim=True)
 
@@ -921,30 +879,30 @@ class GraspEnv:
             hand_z = pos[2] + 0.07
             # assert hand_z >= 0.4, 'z coord was {}'.format(hand_z)
 
-        self.env.move_arm({
+        self.move_arm({
             'arm_flex_joint': -np.pi * 0.25,
             'wrist_flex_joint': -np.pi * 0.25,
             'arm_lift_joint': 0.4,
         })
 
-        self.env.move_arm({
+        self.move_arm({
             'arm_flex_joint': -np.pi * 0.5,
             'wrist_flex_joint': -np.pi * 0.5,
             'arm_lift_joint': 0.4,
         })
 
-        base_x, base_y, base_rot = list(self.env.robot.get_states()['joint_position'])[:3]
+        base_x, base_y, base_rot = list(self.robot.get_states()['joint_position'])[:3]
         d = False
 
         pos = np.array([pos[0], pos[1], hand_z])
-        self.env.move_ee(pos + np.array([0, 0, 0.1]), rot, damp_base=d)
-        self.env.move_ee(pos, rot, damp_base=d)
+        self.move_ee(pos + np.array([0, 0, 0.1]), rot, damp_base=d)
+        self.move_ee(pos, rot, damp_base=d)
 
-        self.env.open_gripper()
-        self.env.move_ee(pos + np.array([0, 0, 0.1]), rot, damp_base=d)
-        self.env.move_base(base_x, base_y, base_rot)
-        self.env.holding_pose()
-        self.env.close_gripper()
+        self.open_gripper()
+        self.move_ee(pos + np.array([0, 0, 0.1]), rot, damp_base=d)
+        self.move_base(base_x, base_y, base_rot)
+        self.holding_pose()
+        self.close_gripper()
 
         self.placed_objects = self.check_placed_objects()
         num_placed_after = len(self.placed_objects)
@@ -956,14 +914,14 @@ class GraspEnv:
     def check_grasp(self):
         obj = None
 
-        points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=40)
+        points = self.c_gui.getContactPoints(bodyA=self.robot.id, linkIndexA=40)
         for c in points:
             if c[2] in self.obj_ids:
                 obj = c[2]
                 break
 
         if obj is None:
-            points = self.env.c_gui.getContactPoints(bodyA=self.env.robot.id, linkIndexA=46)
+            points = self.c_gui.getContactPoints(bodyA=self.robot.id, linkIndexA=46)
             for c in points:
                 if c[2] in self.obj_ids:
                     obj = c[2]
@@ -1039,14 +997,14 @@ class GraspEnv:
             z += 0.24 - 0.07
             r2 = np.linalg.norm(np.array([grasp_px, grasp_py]) - np.array([0, 112])) / 224.0 * -0.3
 
-            if self.env.grasp_primitive([x, y, z], angle, frame=self.obs_config['base_frame'], stop_at_contact=False):
-                self.env.holding_pose()
+            if self.grasp_primitive([x, y, z], angle, frame=self.obs_config['base_frame'], stop_at_contact=False):
+                self.holding_pose()
 
-                if self.env.break_criteria():
+                if self.break_criteria():
                     grasp_success = False
                 else:
                     for _ in range(240):
-                        self.env.stepSimulation()
+                        self.stepSimulation()
 
                     obj = self.check_grasp()
                     grasp_success = obj is not None
@@ -1093,7 +1051,7 @@ class GraspEnv:
             look_v = self.obs_config['base_frame'].dot([look_x, look_y, look_z, 1])[:3]
 
             # if np.abs(look_x) < BOUNDS and np.abs(look_y) < BOUNDS:
-            self.env.look_at(look_v, sim=True)
+            self.look_at(look_v, sim=True)
 
             # else:
             #    reward = -0.25
@@ -1144,3 +1102,25 @@ def to_maps(rgb, depth, seg, config, bounds, px_size, depth_noise=False, pos_noi
         [seg[:, :, None]], [depth.copy()], [config], bounds, px_size)
 
     return hmaps[0], cmaps[0], segmaps[0], np.float32(depth)
+
+
+def setup_object(client, id, coll_ids, area, tries=10):
+    for _ in range(tries):
+        x = np.random.uniform(area[0][0], area[1][0])
+        y = np.random.uniform(area[0][1], area[1][1])
+        z = np.random.uniform(area[0][2], area[1][2])
+
+        pos = (x, y, z)
+
+        client.resetBasePositionAndOrientation(id, pos, R.random().as_quat())
+        valid = True
+
+        for cid in coll_ids:
+            if len(client.getClosestPoints(id, cid, 0)) > 0:
+                valid = False
+                break
+
+        if valid:
+            return True
+
+    return False

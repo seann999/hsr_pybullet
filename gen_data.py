@@ -52,7 +52,7 @@ def generate(seed, indices, args):
         cv2.imwrite(os.path.join(d, 'segmap.png'), segmap[:, :, 0])
 
         json.dump({
-            'robot_id': env.env.robot.id,
+            'robot_id': env.robot.id,
             'furn_ids': env.furn_ids,
             'placed_obj_ids': env.placed_objects,
             'obj_ids': env.obj_ids,
