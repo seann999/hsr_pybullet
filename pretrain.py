@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader, random_split
 import matplotlib.pyplot as plt
 from fcn_model import FCN
 #from train_agent import phi
+import albumentations as A
 
 
 CLASSES = {
@@ -36,12 +37,33 @@ CLASSES = {
 }
 
 
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
+colors = plt.get_cmap('tab20')
+newcolors = colors(np.arange(20))
+COLORS = np.concatenate([np.array([[0, 0, 0, 1.0]]), newcolors, np.array([[1, 1, 1, 1.0]])], 0)
+#newcmp = ListedColormap(newcolors)
+
+def visualize(out):
+    x = np.zeros((out.shape[0], out.shape[1], 3), dtype=np.uint8)
+
+    for i in range(22):
+        c = COLORS[i]
+        x[out == i] = tuple(np.uint8(c[:3] * 255))
+
+    return x
+
+
 class SegData:
     def __init__(self, root, train, classify=False, hmap=False):
         self.root = root
         self.files = os.listdir(self.root)
         self.classify = classify
         self.hmap = hmap
+        self.train = train
+        self.transform = A.Compose([
+            A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0, rotate_limit=30, border_mode=cv2.BORDER_CONSTANT, value=0),
+        ])
 
         if train:
             self.files = self.files[:8000]
@@ -59,7 +81,6 @@ class SegData:
         #rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
         # hmap = cv2.warpAffine(hmap, rot_mat, (224, 224))
 
-        hmap = (hmap / 1000.0).astype(np.float32)[None]
         #gtmap = cv2.imread(os.path.join(self.root, self.files[idx], 'maskmap.png'))[:, :, 0] > 0
         segmap = cv2.imread(os.path.join(self.root, self.files[idx], 'segmap.png' if self.hmap else 'seg.png'), -1)#.astype(np.float32)
         info = json.load(open(os.path.join(self.root, self.files[idx], 'ids.json'), 'r'))
@@ -92,6 +113,12 @@ class SegData:
             gtmap = gtmap.astype(np.float32)
             # gtmap = cv2.warpAffine(gtmap, rot_mat, (224, 224))
 
+        if self.train and self.classify:
+            re = self.transform(image=hmap, mask=gtmap)
+            hmap, gtmap = re['image'], re['mask'].astype(np.int64)
+
+        hmap = (hmap / 1000.0).astype(np.float32)[None]
+
         return hmap, gtmap
 
 
@@ -111,8 +138,8 @@ def create_fig(y_hat, y, classification=False):
 
         if classification:
             y = y.astype(np.uint8)
-            ax[1, i].imshow(y_hat[i].argmax(axis=0), cmap=newcmp, interpolation='nearest')
-            ax[2, i].imshow(y[i], cmap=newcmp, interpolation='nearest')
+            ax[1, i].imshow(visualize(y_hat[i].argmax(axis=0)), interpolation='nearest')
+            ax[2, i].imshow(visualize(y[i]), cmap=newcmp, interpolation='nearest')
         else:
             ax[1, i].imshow(y_hat[i, 0], vmin=0, vmax=1)
             ax[2, i].imshow(y[i, 0], vmin=0, vmax=1)
@@ -179,6 +206,9 @@ if __name__ == '__main__':
             loss = loss.cpu().detach().numpy()
             total_loss += loss
 
+            #fig = create_fig(y_hat, y, classification=args.classify)
+            #fig.savefig(os.path.join(root, 'train_{:05d}.png'.format(ep)))
+
             print(i, len(train_loader), loss)
 
         loss_avg = total_loss / len(train_loader)
@@ -221,4 +251,4 @@ if __name__ == '__main__':
         plt.savefig(os.path.join(root, 'loss.png'))
 
         if ep % 10 == 0:
-            torch.save(model.state_dict(), os.path.join(root, '/weights_{:03d}.p'.format(ep)))
+            torch.save(model.state_dict(), os.path.join(root, 'weights_{:03d}.p'.format(ep)))
