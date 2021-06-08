@@ -516,12 +516,14 @@ DEFAULT_CONFIG = {
 
 
 class GraspEnv:
-    def __init__(self, n_objects=70, config=DEFAULT_CONFIG, setup_room=True, reset_interval=1, ycb=True, **kwargs):
+    def __init__(self, n_objects=70, config=DEFAULT_CONFIG, setup_room=True,
+                 reset_interval=1, ycb=True, full_range=False, **kwargs):
         self.env = HSREnv(**kwargs)
         self.reset_interval = reset_interval
         self.check_object_collision = True
         self.break_collision = True
         self.ycb = ycb
+        self.full_range = full_range
 
         self.obj_ids = []
         self.furn_ids = []
@@ -568,7 +570,7 @@ class GraspEnv:
 
     def reset_env(self):
         # if setup_room:
-        self.furn_ids = self.generate_room()
+        self.furn_ids = self.generate_room(full_range=self.full_range)
         # else:
         #    self.furn_ids = {}
 
@@ -597,7 +599,7 @@ class GraspEnv:
         self.env.c_gui.stepSimulation = wrapper(self.env.c_gui.stepSimulation)
         self.env.break_criteria = break_criteria
 
-    def generate_room(self, drawers_open=True):
+    def generate_room(self, drawers_open=True, full_range=False):
         random_containers = True
         rot_noise = np.pi / 180 * 5
         ids = {}
@@ -643,19 +645,29 @@ class GraspEnv:
             knob_id = eu.spawn_knob(self.env.c_gui, np.array(pos) + np.array([0.205, 0, 0.04]) + random_offset)
             return x, knob_id
 
-        pull = (-2.4 if drawers_open else -2.7) + np.random.uniform(-1, 1) * pull_noise
+        if full_range:
+            pull = np.random.uniform(-2.7-pull_noise, -2.4+pull_noise)
+        else:
+            pull = (-2.4 if drawers_open else -2.7) + np.random.uniform(-1, 1) * pull_noise
         pos = (pull, 1, 0.1 + 0.115)
         drawer_id, knob_id = spawn_drawer(pos)
         ids['drawer_bottom'] = drawer_id
         ids['knob_bottom'] = knob_id
 
-        pull = (-2.4 if drawers_open else -2.7) + np.random.uniform(-1, 1) * pull_noise
+        if full_range:
+            pull = np.random.uniform(-2.7-pull_noise, -2.4+pull_noise)
+        else:
+            pull = (-2.4 if drawers_open else -2.7) + np.random.uniform(-1, 1) * pull_noise
         pos = (pull, 0.67, 0.1 + 0.115)
         drawer_id, knob_id = spawn_drawer(pos)
         ids['drawer_left'] = drawer_id
         ids['knob_left'] = knob_id
 
-        pos = (-2.7 + np.random.uniform(-1, 1) * pull_noise, 1, 0.36 + 0.115)
+        if full_range:
+            pull = np.random.uniform(-2.7-pull_noise, -2.4+pull_noise)
+        else:
+            pull = -2.7 + np.random.uniform(-1, 1) * pull_noise
+        pos = (pull, 1, 0.36 + 0.115)
         drawer_id, knob_id = spawn_drawer(pos)
         ids['drawer_top'] = drawer_id
         ids['knob_top'] = knob_id

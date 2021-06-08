@@ -19,7 +19,7 @@ def generate(seed, indices, args):
     config = {'depth_noise': True, 'rot_noise': True, 'action_grasp': True,
               'action_look': True, 'spawn_mode': 'circle', 'res': 224, 'rots': 16, }
 
-    env = GraspEnv(config=config, connect=p.GUI if args.gui else p.DIRECT, ycb=False)
+    env = GraspEnv(config=config, connect=p.GUI if args.gui else p.DIRECT, ycb=False, full_range=True)
     env.set_seed(seed)
     # env = make_batch_env(config, n_envs=8)
 
