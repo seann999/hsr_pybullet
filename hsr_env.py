@@ -525,6 +525,7 @@ class WRSEnv(HSREnv):
         self.placed_objects = []
 
         self.res = 224
+        self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 1]])
         self.px_size = 3.0 / self.res
         self.num_rots = 16
 
@@ -758,7 +759,6 @@ class GraspEnv(WRSEnv):
         self.hmap, self.obs_config, self.segmap = None, None, None
 
         self.dummy = np.zeros((3, self.res, self.res), dtype=np.float32)
-        self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 1]])
 
         self.steps = 0
         self.ep_counter = 0

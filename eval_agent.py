@@ -21,7 +21,7 @@ if __name__ == '__main__':
     parser.add_argument('--pretrain', type=str, default=None)
     parser.add_argument('--show-hmap', action='store_true')
     parser.add_argument('--shapenet', action='store_true')
-    parser.add_argument('--idle', action='store_true')
+    parser.add_argument('--idle', type=int, default=0)
     parser.add_argument('--debug-agent', action='store_true')
     parser.add_argument('--gui', action='store_true')
     parser.add_argument('--n-objects', type=int, default=30)
@@ -40,7 +40,6 @@ if __name__ == '__main__':
             a = hmap.flatten().argmax()
 
             return a
-
 
     agent_type = args.agent
 
@@ -88,9 +87,9 @@ if __name__ == '__main__':
             obs = env.reset()
             print('reset done')
 
-            if args.idle:
-                for _ in range(240*2):
-                    env.env.stepSimulation()
+            if args.idle > 0:
+                for _ in range(240 * args.idle):
+                    env.stepSimulation()
                 continue
 
             R = 0  # return (sum of rewards)

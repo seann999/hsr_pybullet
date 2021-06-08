@@ -143,7 +143,7 @@ def spawn_knob(client, pos):
     return obj_id
 
 
-def load_obj(client, mesh_path, collision_path, rand_scale=True, area=[[0.5, 3.0], [-1.5, 1.5], [0.4, 0.6]]):
+def load_obj(client, mesh_path, collision_path, rand_scale=True, max_side_len=0.35):
     name_log = 'log.txt'
 
     mesh = trimesh.load(mesh_path, force='mesh', process=False)
@@ -155,16 +155,20 @@ def load_obj(client, mesh_path, collision_path, rand_scale=True, area=[[0.5, 3.0
 
     if rand_scale:
         max_side = max(mesh.extents)
-        scale = np.random.uniform(0.06, 0.35) / max_side
+        scale = np.random.uniform(0.06, max_side_len) / max_side
         mesh.apply_scale(scale)
     else:
         scale = 1
+
+    centroid = mesh.centroid
 
     scale = [scale, scale, scale]
 
     viz_shape_id = client.createVisualShape(
         shapeType=client.GEOM_MESH,
-        fileName=mesh_path, meshScale=scale)
+        fileName=mesh_path, meshScale=scale,
+        visualFramePosition=-centroid,
+    )
 
     # print(mesh.center_mass)
     # print(mesh.mass)
@@ -174,6 +178,7 @@ def load_obj(client, mesh_path, collision_path, rand_scale=True, area=[[0.5, 3.0
     col_shape_id = client.createCollisionShape(
         shapeType=client.GEOM_MESH,
         fileName=collision_path, meshScale=scale,
+        collisionFramePosition=-centroid,
     )
 
     mesh.density = 150
@@ -185,7 +190,7 @@ def load_obj(client, mesh_path, collision_path, rand_scale=True, area=[[0.5, 3.0
         baseCollisionShapeIndex=col_shape_id,
         baseVisualShapeIndex=viz_shape_id,
         baseOrientation=(0, 0, 0, 1),
-        baseInertialFramePosition=np.array(mesh.center_mass),
+        baseInertialFramePosition=np.array(mesh.center_mass - centroid),
     )
 
     client.changeDynamics(obj_id, -1, lateralFriction=0.25)
@@ -193,7 +198,7 @@ def load_obj(client, mesh_path, collision_path, rand_scale=True, area=[[0.5, 3.0
     return True, obj_id
 
 
-def spawn_objects(client, ids=None, ycb=True, num_spawn=None):
+def spawn_objects(client, ids=None, ycb=True, num_spawn=None, **kwargs):
     if ycb:
         paths = sorted([x for x in os.listdir('assets/ycb') if os.path.isdir('assets/ycb/{}'.format(x))])
     else:
@@ -216,11 +221,11 @@ def spawn_objects(client, ids=None, ycb=True, num_spawn=None):
             if ycb:
                 path = 'assets/ycb/{}/google_16k/nontextured.stl'.format(x)
                 collision_path = 'assets/ycb/{}/google_16k/collision.obj'.format(x)
-                success, obj_id = load_obj(client, path, collision_path, rand_scale=False)
+                success, obj_id = load_obj(client, path, collision_path, rand_scale=False, **kwargs)
             else:
                 path = 'assets/shapenetsem/original/{}'.format(x)
                 collision_path = 'assets/shapenetsem/collision/{}'.format(x)
-                success, obj_id = load_obj(client, path, collision_path)
+                success, obj_id = load_obj(client, path, collision_path, **kwargs)
 
             # if not success:
             #     print('failed load')
