@@ -27,94 +27,100 @@ def generate(seed, indices, args):
     # env = make_batch_env(config, n_envs=8)
 
     for i in indices:
-        obs = env.reset()
+        while True:
+            obs = env.reset()
 
-        result_data = {
-            'robot_id': env.robot.id,
-            'furn_ids': env.furn_ids,
-            'placed_obj_ids': env.placed_objects,
-            'obj_ids': env.obj_ids,
-        }
+            result_data = {
+                'robot_id': env.robot.id,
+                'furn_ids': env.furn_ids,
+                'placed_obj_ids': env.placed_objects,
+                'obj_ids': env.obj_ids,
+            }
 
-        if args.place:
-            loc_name = random.choice([
-                'tray_left',
-                'tray_right',
-                'container_left',
-                'container_right',
-                'bin_left',
-                'bin_right',
-                'drawer_left',
-                'drawer_right',
-            ])
-            target_loc = env.furn_ids[loc_name]
-            small = loc_name == 'container_left'
-            tries = 0
+            if args.place:
+                loc_name = random.choice([
+                    'tray_left',
+                    'tray_right',
+                    'container_left',
+                    'container_right',
+                    'bin_left',
+                    'bin_right',
+                    'drawer_bottom',
+                    'drawer_left',
+                ])
+                target_loc = env.furn_ids[loc_name]
+                small = loc_name == 'container_left'
+                tries = 0
 
-            while target_loc not in np.unique(env.segmap[:, :, 0]):
-                env.reset_pose()
-                env.move_joints({
-                    'joint_rz': np.random.uniform(-np.pi, np.pi),
-                    'head_tilt_joint': np.random.uniform(-1.57, 0),
-                    # 'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
-                }, sim=False)
-                obs = env.update_obs()
-                tries += 1
+                while target_loc not in np.unique(env.segmap[:, :, 0]):
+                    env.reset_pose()
+                    env.move_joints({
+                        'joint_rz': np.random.uniform(-np.pi, np.pi),
+                        'head_tilt_joint': np.random.uniform(-1.57, 0),
+                        # 'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
+                    }, sim=False)
+                    obs = env.update_obs()
+                    tries += 1
 
-                if tries >= 1000:
-                    raise Exception('could not sample')
+                    if tries >= 100:
+                        break
 
-            for _ in range(240 * 5):
-                env.stepSimulation()
+                if tries >= 100:
+                    continue
 
-            valid_locs = np.stack(np.where(env.segmap[:, :, 0] == target_loc)).T
+                for _ in range(240 * 5):
+                    env.stepSimulation()
 
-            px, py = 1000, 1000
+                valid_locs = np.stack(np.where(env.segmap[:, :, 0] == target_loc)).T
 
-            while not (0 <= px <= 224 and 0 <= py <= 224):
-                py, px = valid_locs[np.random.randint(len(valid_locs))]
-                py += np.random.randint(low=-5, high=6)
-                px += np.random.randint(low=-5, high=6)
+                px, py = 1000, 1000
 
-            place_x = env.hmap_bounds[0, 0] + px * env.px_size
-            place_y = env.hmap_bounds[1, 0] + py * env.px_size
-            place_v = env.obs_config['base_frame'].dot([place_x, place_y, 1, 1])[:3]
-            id = eu.spawn_objects(env.c_gui, num_spawn=1, ycb=False, max_side_len=0.1 if small else 0.2)[0]
-            env.c_gui.resetBasePositionAndOrientation(id, place_v, R.random().as_quat())
+                while not (0 <= px <= 224 and 0 <= py <= 224):
+                    py, px = valid_locs[np.random.randint(len(valid_locs))]
+                    py += np.random.randint(low=-5, high=6)
+                    px += np.random.randint(low=-5, high=6)
 
-            env.c_gui.resetBasePositionAndOrientation(env.marker_id, [place_v[0], place_v[1], 0.4], (0, 0, 0, 1))
+                place_x = env.hmap_bounds[0, 0] + px * env.px_size
+                place_y = env.hmap_bounds[1, 0] + py * env.px_size
+                place_v = env.obs_config['base_frame'].dot([place_x, place_y, 1, 1])[:3]
+                id = eu.spawn_objects(env.c_gui, num_spawn=1, ycb=False, max_side_len=0.1 if small else 0.2)[0]
+                env.c_gui.resetBasePositionAndOrientation(id, place_v, R.random().as_quat())
 
-            contact_obj = False
-            objs_in_loc = list(set([c[2] for c in env.c_gui.getContactPoints(target_loc) if c[2] in env.obj_ids]))
+                env.c_gui.resetBasePositionAndOrientation(env.marker_id, [place_v[0], place_v[1], 0.4], (0, 0, 0, 1))
 
-            for _ in range(240*5):
-                env.stepSimulation()
-                v, av = env.c_gui.getBaseVelocity(id)
-                env.c_gui.resetBaseVelocity(id, [0, 0, v[2]], [0, 0, 0])
+                contact_obj = False
+                objs_in_loc = list(set([c[2] for c in env.c_gui.getContactPoints(target_loc) if c[2] in env.obj_ids]))
 
-                if not contact_obj:
-                    contact_obj |= any([len(env.c_gui.getContactPoints(id, obj)) > 0 for obj in objs_in_loc])
+                for _ in range(240*5):
+                    env.stepSimulation()
+                    v, av = env.c_gui.getBaseVelocity(id)
+                    env.c_gui.resetBaseVelocity(id, [0, 0, v[2]], [0, 0, 0])
 
-            for _ in range(240*5):
-                env.stepSimulation()
+                    if not contact_obj:
+                        contact_obj |= any([len(env.c_gui.getContactPoints(id, obj)) > 0 for obj in objs_in_loc])
 
-                if not contact_obj:
-                    contact_obj |= any([len(env.c_gui.getContactPoints(id, obj)) > 0 for obj in objs_in_loc])
+                for _ in range(240*5):
+                    env.stepSimulation()
 
-            contact_loc = len(env.c_gui.getContactPoints(id, target_loc)) > 0
-            contact_other = len([c[2] for c in env.c_gui.getContactPoints(id) if c[2] not in objs_in_loc and c[2] != target_loc]) > 0
+                    if not contact_obj:
+                        contact_obj |= any([len(env.c_gui.getContactPoints(id, obj)) > 0 for obj in objs_in_loc])
 
-            result_data.update({
-                'place': {
-                    'target_loc_name': loc_name,
-                    'target_loc_id': target_loc,
-                    'loc_px': [int(px), int(py)],
-                    'loc_world': place_v.tolist(),
-                    'contact_loc': contact_loc,
-                    'contact_neighbor': contact_obj,
-                    'contact_other': contact_other,
-                }
-            })
+                contact_loc = len(env.c_gui.getContactPoints(id, target_loc)) > 0
+                contact_other = len([c[2] for c in env.c_gui.getContactPoints(id) if c[2] not in objs_in_loc and c[2] != target_loc]) > 0
+
+                result_data.update({
+                    'place': {
+                        'target_loc_name': loc_name,
+                        'target_loc_id': target_loc,
+                        'loc_px': [int(px), int(py)],
+                        'loc_world': place_v.tolist(),
+                        'contact_loc': contact_loc,
+                        'contact_neighbor': contact_obj,
+                        'contact_other': contact_other,
+                    }
+                })
+
+            break
             # print(contact_loc, contact_obj, contact_other)
 
             # obs = np.dstack([env.hmap for _ in range(3)])
