@@ -16,6 +16,7 @@ from multiprocessing import Pool
 import json
 import env_utils as eu
 from scipy.spatial.transform import Rotation as R
+import time
 
 
 def generate(seed, indices, args):
@@ -27,6 +28,8 @@ def generate(seed, indices, args):
     # env = make_batch_env(config, n_envs=8)
 
     for i in indices:
+        t = time.time()
+
         while True:
             obs = env.reset()
 
@@ -75,10 +78,14 @@ def generate(seed, indices, args):
 
                 px, py = 1000, 1000
 
-                while not (0 <= px <= 224 and 0 <= py <= 224):
-                    py, px = valid_locs[np.random.randint(len(valid_locs))]
-                    py += np.random.randint(low=-5, high=6)
-                    px += np.random.randint(low=-5, high=6)
+                while not (0 <= px < 224 and 0 <= py < 224):
+                    if np.random.random() < 0.1:
+                        px = np.random.randint(0, 224)
+                        py = np.random.randint(0, 224)
+                    else:
+                        py, px = valid_locs[np.random.randint(len(valid_locs))]
+                        py += np.random.randint(low=-10, high=10)
+                        px += np.random.randint(low=-10, high=10)
 
                 place_x = env.hmap_bounds[0, 0] + px * env.px_size
                 place_y = env.hmap_bounds[1, 0] + py * env.px_size
@@ -138,7 +145,7 @@ def generate(seed, indices, args):
             cv2.imshow('hmap', np.uint8(obs[0] / obs[0].max() * 255))
             cv2.waitKey(1)
 
-        d = os.path.join(args.root, '{:05d}'.format(i))
+        d = os.path.join(args.root, '{:07d}'.format(i))
 
         try:
             os.makedirs(d)
@@ -155,6 +162,8 @@ def generate(seed, indices, args):
         cv2.imwrite(os.path.join(d, 'segmap.png'), segmap[:, :, 0])
 
         json.dump(result_data, open(os.path.join(d, 'ids.json'), 'w'))
+
+        print('time:', time.time() - t)
 
     print('Finished.')
 
@@ -174,5 +183,5 @@ if __name__ == '__main__':
         pass
 
     pool = Pool(args.workers)
-    indices = np.array_split(range(10000), args.workers)
+    indices = np.array_split(range(100000), args.workers)
     result = pool.starmap(generate, [(i, idx, args) for i, idx in enumerate(indices)])
