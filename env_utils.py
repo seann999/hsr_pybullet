@@ -147,17 +147,27 @@ def load_obj(client, mesh_path, collision_path, rand_scale=True, area=[[0.5, 3.0
 
 
 def spawn_objects(client, ids=None, ycb=True, num_spawn=None):
+
+    def randint_nodup(start, end, k):
+            ns = []
+            end = end-1
+            while len(ns) < k:
+                n = random.randint(start, end)
+                if not n in ns:
+                    ns.append(n)
+            return ns
+
     if ycb:
-        paths = sorted([x for x in os.listdir('assets/ycb') if os.path.isdir('assets/ycb/{}'.format(x))])
+        paths = sorted([x for x in os.listdir('assets/ycb_task2b') if os.path.isdir('assets/ycb_task2b/{}'.format(x))])
     else:
         paths = sorted([x for x in os.listdir('assets/shapenetsem/original') if x.endswith('.obj')])
 
     obj_ids = []
-    area = [[0.5, 3.0], [-1.5, 1.5], [0.4, 0.6]]
+    # area = [[3.5, 5.0], [-1.5, 2.5], [0.4, 0.6]]
 
     if ids is None:
         num_spawn = np.random.randint(1, 31) if num_spawn is None else num_spawn
-        ids = np.random.randint(0, len(paths), num_spawn)
+        ids = randint_nodup(0, len(paths), num_spawn)
 
     # index = 0
     for i in ids:
@@ -167,8 +177,8 @@ def spawn_objects(client, ids=None, ycb=True, num_spawn=None):
             x = paths[i]#random.choice(paths)
 
             if ycb:
-                path = 'assets/ycb/{}/google_16k/nontextured.stl'.format(x)
-                collision_path = 'assets/ycb/{}/google_16k/collision.obj'.format(x)
+                path = 'assets/ycb_task2b/{}/google_16k/nontextured.stl'.format(x)
+                collision_path = 'assets/ycb_task2b/{}/google_16k/collision.obj'.format(x)
                 success, obj_id = load_obj(client, path, collision_path, rand_scale=False)
             else:
                 path = 'assets/shapenetsem/original/{}'.format(x)

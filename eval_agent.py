@@ -5,7 +5,7 @@ try:
 except:
     pass
 
-from hsr_env import GraspEnv
+from hsr_env import GraspEnvTask2b
 import pybullet as p
 import pfrl
 import argparse
@@ -27,7 +27,7 @@ if __name__ == '__main__':
 
     config = {'depth_noise': True, 'rot_noise': True, 'action_grasp': True,
               'action_look': True, 'spawn_mode': 'circle'}
-    env = GraspEnv(config=config, n_objects=args.n_objects, connect=p.GUI if args.gui else p.DIRECT)
+    env = GraspEnvTask2b(config=config, n_objects=args.n_objects, connect=p.GUI if args.gui else p.DIRECT)
 
     class MaxAgent:
         def __init__(self):
@@ -36,7 +36,6 @@ if __name__ == '__main__':
         def act(self, obs):
             hmap = obs[0]
             a = hmap.flatten().argmax()
-
             return a
 
 
@@ -78,7 +77,7 @@ if __name__ == '__main__':
         'res': 224,
         'rots': 16,
     }
-    random_fn = GraspEnv.random_action_sample_fn(config)
+    random_fn = GraspEnvTask2b.random_action_sample_fn(config)
 
     def do_trials():
         for i in range(1, n_episodes + 1):

@@ -29,12 +29,13 @@ CAMERA_XTION_CONFIG = [{
 }]
 
 POSE_HOLDING = {
-    'head_tilt_joint': np.pi * -0.25,
+    'head_tilt_joint': 0,#np.pi * -0.25
     'arm_roll_joint': np.pi * 0.5,
     'wrist_flex_joint': np.pi * -0.5,
 }
 
 base_locs = {
+    'shelf': [2.0, -0.8],
     'right_tray': [-2.1, -0.4],
     'left_tray': [-2.1, -0.7],
     'right_bin': [-2.2, -1.2],
@@ -207,10 +208,11 @@ class HSREnv:
             rgb, depth, seg = eu.render_camera(self.c_gui, camera_config[0])
 
             head_rel_mat = np.matmul(np.linalg.inv(base_mat), head_mat)
+            
             camera_config[0]['position'] = head_rel_mat[:3, -1]
             camera_config[0]['rotation'] = R.from_matrix(head_rel_mat[:3, :3]).as_quat()
             camera_config[0]['base_frame'] = base_mat
-
+            
             out = rgb, depth, seg, camera_config[0]
         else:
             out = eu.get_heightmaps(self.c_gui, camera_config, bounds=bounds, px_size=px_size, **kwargs)
@@ -326,8 +328,8 @@ class HSREnv:
 
     def reset_pose(self):
         neutral = [0 for _ in self.robot.get_states()['joint_position']]
-        neutral[0] = np.random.uniform(-2, -1)# q[0]
-        neutral[1] = np.random.uniform(-1, 1)# q[1]
+        neutral[0] = np.random.uniform(1, 2)# q[0]
+        neutral[1] = np.random.uniform(-0.8, -1.5)# q[1]
         # neutral[2] = q[2]
         for k, v in POSE_HOLDING.items():
             neutral[self.joint2idx[k]] = v
@@ -514,8 +516,7 @@ DEFAULT_CONFIG = {
     'spawn_mode': 'box',
 }
 
-
-class GraspEnv:
+class GraspEnvTask2b:
     def __init__(self, n_objects=70, config=DEFAULT_CONFIG, setup_room=True, reset_interval=1, **kwargs):
         self.env = HSREnv(**kwargs)
         self.reset_interval = reset_interval
@@ -554,7 +555,9 @@ class GraspEnv:
         self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 1]])
 
         self.spawn_mode = 'box'# config['spawn_mode']
-        self.spawn_box = [[-1.5, -1, 0.4], [-0.5, 1.5, 0.6]]# [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
+        self.spawn_top_box = [[2.66, -0.8, 1.15], [2.67, -1.4, 1.15]]# [[0.5, -1.5, 0.4], [3.0, 1.5, 0.6]]
+        self.spawn_middle_box = [[2.66, -0.8, 0.84], [2.67, -1.3, 0.84]]
+        self.spawn_bottom_box = [[2.66, -0.8, 0.61], [2.67, -1.3, 0.61]]
         self.spawn_radius = 3
 
         self.steps = 0
@@ -698,6 +701,8 @@ class GraspEnv:
 
         return fn
 
+    
+
     def reset(self):
         self.ep_start_time = time.time()
         self.ep_counter += 1
@@ -713,7 +718,7 @@ class GraspEnv:
         for obj in self.obj_ids:
             self.env.c_gui.removeBody(obj)
 
-        self.obj_ids = eu.spawn_objects(self.env.c_gui, num_spawn=np.random.randint(1, 31))
+        self.obj_ids = eu.spawn_objects(self.env.c_gui, num_spawn=np.random.randint(3, 10))
 
         self.placed_objects = []
 
@@ -723,57 +728,107 @@ class GraspEnv:
 
         # num_objs = np.random.randint(1, 30)
         selected = np.random.permutation(self.obj_ids)# [:num_objs]
+        top2middle_index = len(selected) // 3
+        middle2bottom_index = top2middle_index * 2
+        top_shelf = selected[:top2middle_index]
+        middle_shelf = selected[top2middle_index:middle2bottom_index]
+        bottom_shelf = selected[middle2bottom_index:]
 
         self.env.reset_pose()
 
         self.env.move_joints({
-            'joint_rz': np.random.uniform(-np.pi, np.pi),
-            'head_tilt_joint': np.random.uniform(-1.57, 0),
+            'joint_rz': np.random.uniform(-np.pi*0.2, np.pi*0.2),
+            'head_tilt_joint': np.random.uniform(0.0, 0.0),
             # 'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
         }, sim=False)
 
-        for i, id in enumerate(selected):
-            if i == 1 and np.random.random() < 0.5:
-                self.env.c_gui.resetBasePositionAndOrientation(id, [-2.7, -0.75, 0.6], R.random().as_quat())
-            elif i == 2 and np.random.random() < 0.5:
-                self.env.c_gui.resetBasePositionAndOrientation(id, [-2.7, -0.45, 0.6], R.random().as_quat())
-            elif np.random.random() < 0.1:
-                c = random.choice([0, 1, 2, 3])
+        for i, id in enumerate(top_shelf):
+            
+            for t in range(10):
+                if self.spawn_mode == 'box':
+                    x = np.random.uniform(self.spawn_top_box[0][0], self.spawn_top_box[1][0])
+                    y = np.random.uniform(self.spawn_top_box[0][1], self.spawn_top_box[1][1])
+                    z = np.random.uniform(self.spawn_top_box[0][2], self.spawn_top_box[1][2])
+                
+                pos = (x, y, z)
+                quat = np.array([0,0,np.random.uniform(-1, 1),0])
 
-                if c == 0:
-                    self.env.c_gui.resetBasePositionAndOrientation(id, [-2.7, -1.7, 0.4], R.random().as_quat())
-                elif c == 1:
-                    self.env.c_gui.resetBasePositionAndOrientation(id, [-2.7, -1.2, 0.4], R.random().as_quat())
-            else:
-                for t in range(10):
-                    if self.spawn_mode == 'box':
-                        x = np.random.uniform(self.spawn_box[0][0], self.spawn_box[1][0])
-                        y = np.random.uniform(self.spawn_box[0][1], self.spawn_box[1][1])
-                        z = np.random.uniform(self.spawn_box[0][2], self.spawn_box[1][2])
-                    else:
-                        theta = np.random.uniform(0, 2.0 * np.pi)
-                        dist = np.random.uniform(0.5, self.spawn_radius)
-                        x, y = np.cos(theta) * dist, np.sin(theta) * dist
-                        z = np.random.uniform(0.4, 0.6)
+                self.env.c_gui.resetBasePositionAndOrientation(id, pos, quat)
+                valid = True
 
-                    pos = (x, y, z)
+                if len(self.env.c_gui.getClosestPoints(id, self.env.robot.id, 0)) > 0\
+                        or any([len(self.env.c_gui.getClosestPoints(id, fid, 0)) > 0 for fid in self.furn_ids]):
+                    valid = False
+                else:
+                    for prev in selected[:i]:
+                        if len(self.env.c_gui.getClosestPoints(id, prev, 0)) > 0:
+                            valid = False
+                            break
 
-                    self.env.c_gui.resetBasePositionAndOrientation(id, pos, R.random().as_quat())
-                    valid = True
-
-                    if len(self.env.c_gui.getClosestPoints(id, self.env.robot.id, 0)) > 0\
-                            or any([len(self.env.c_gui.getClosestPoints(id, fid, 0)) > 0 for fid in self.furn_ids]):
-                        valid = False
-                    else:
-                        for prev in selected[:i]:
-                            if len(self.env.c_gui.getClosestPoints(id, prev, 0)) > 0:
-                                valid = False
-                                break
-
-                    if valid:
-                        break
+                if valid:
+                    break
 
             self.env.c_gui.changeDynamics(id, -1, lateralFriction=0.25)
+        
+
+        for i, id in enumerate(middle_shelf):
+            
+            for t in range(10):
+                if self.spawn_mode == 'box':
+                    x = np.random.uniform(self.spawn_middle_box[0][0], self.spawn_middle_box[1][0])
+                    y = np.random.uniform(self.spawn_middle_box[0][1], self.spawn_middle_box[1][1])
+                    z = np.random.uniform(self.spawn_middle_box[0][2], self.spawn_middle_box[1][2])
+
+                pos = (x, y, z)
+                quat = np.array([0,0,np.random.uniform(-1, 1),0])
+                
+                self.env.c_gui.resetBasePositionAndOrientation(id, pos, quat)
+                valid = True
+
+                if len(self.env.c_gui.getClosestPoints(id, self.env.robot.id, 0)) > 0\
+                        or any([len(self.env.c_gui.getClosestPoints(id, fid, 0)) > 0 for fid in self.furn_ids]):
+                    valid = False
+                else:
+                    for prev in selected[:i]:
+                        if len(self.env.c_gui.getClosestPoints(id, prev, 0)) > 0:
+                            valid = False
+                            break
+
+                if valid:
+                    break
+
+            self.env.c_gui.changeDynamics(id, -1, lateralFriction=0.25)
+
+        
+        for i, id in enumerate(bottom_shelf):
+            
+            for t in range(10):
+                if self.spawn_mode == 'box':
+                    x = np.random.uniform(self.spawn_bottom_box[0][0], self.spawn_bottom_box[1][0])
+                    y = np.random.uniform(self.spawn_bottom_box[0][1], self.spawn_bottom_box[1][1])
+                    z = np.random.uniform(self.spawn_bottom_box[0][2], self.spawn_bottom_box[1][2])
+
+                pos = (x, y, z)
+                quat = np.array([0,0,np.random.uniform(-1, 1),0])
+
+                self.env.c_gui.resetBasePositionAndOrientation(id, pos, quat)
+                valid = True
+
+                if len(self.env.c_gui.getClosestPoints(id, self.env.robot.id, 0)) > 0\
+                        or any([len(self.env.c_gui.getClosestPoints(id, fid, 0)) > 0 for fid in self.furn_ids]):
+                    valid = False
+                else:
+                    for prev in selected[:i]:
+                        if len(self.env.c_gui.getClosestPoints(id, prev, 0)) > 0:
+                            valid = False
+                            break
+
+                if valid:
+                    break
+
+            self.env.c_gui.changeDynamics(id, -1, lateralFriction=0.25)
+        
+        
 
         # print('settle')
         x = [self.env.c_gui.getBasePositionAndOrientation(i)[0] for i in selected]
@@ -842,16 +897,17 @@ class GraspEnv:
         np.random.seed(idx)
 
     def preplace(self):
-        self.target_loc = random.choice(list(base_locs.keys()))
+        self.target_loc = 'shelf'
         base_x, base_y = base_locs[self.target_loc]
 
         base_x += np.random.uniform(-0.05, 0.05)
         base_y += np.random.uniform(-0.05, 0.05)
-        base_rot = np.pi + np.random.uniform(-10/180*np.pi, 10/180*np.pi)
+        base_rot = np.pi + np.random.uniform(-0.1*np.pi, 0.1*np.pi)#-10/180*np.pi, 10/180*np.pi
 
         self.env.move_base(base_x, base_y, base_rot)
         self.env.move_joints({
-            'head_tilt_joint': np.random.uniform(-np.pi*0.4, -np.pi*0.2),
+
+            'head_tilt_joint': np.random.uniform(-np.pi*0.2, np.pi*0.4),
         }, sim=True)
 
     def place(self, pos, frame):

@@ -1,4 +1,4 @@
-from hsr_env import GraspEnv
+from hsr_env import GraspEnvTask2b
 import pybullet as p
 import numpy as np
 import pfrl
