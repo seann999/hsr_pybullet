@@ -273,7 +273,7 @@ class HSREnv:
 
         if sim:
             self.set_joint_position(curr_q, True)
-            self.steps()
+            self.sim_steps()
 
             # print('target', v)
             # print('error;', error_angle)
@@ -301,7 +301,7 @@ class HSREnv:
                                              force=j.joint_max_force)
 
         if sim:
-            self.steps()
+            self.sim_steps()
 
     def gripper_command(self, open):
         q = self.robot.get_states()['joint_position']
@@ -311,7 +311,7 @@ class HSREnv:
         q[-4] = PROXIMAL_OPEN if open else PROXIMAL_CLOSE
         self.set_joint_position(q, True)
 
-        self.steps()
+        self.sim_steps()
 
     def reset_joints(self, q, gui):
         if gui:
@@ -340,12 +340,12 @@ class HSREnv:
                     config[k] = 0
 
         self.set_joint_position(config, True)
-        self.steps()
+        self.sim_steps()
 
     def holding_pose(self):
         self.move_arm(POSE_HOLDING)
 
-    def steps(self, steps=240 * 10, finger_steps=240, stop_at_stop=True, stop_at_contact=False):
+    def sim_steps(self, steps=240 * 10, finger_steps=240, stop_at_stop=True, stop_at_contact=False):
         prev = self.robot.get_states()['joint_position']
 
         for t in range(steps):
@@ -398,7 +398,7 @@ class HSREnv:
         q[2] = angle
 
         self.set_joint_position(q[:-4], True)
-        self.steps()
+        self.sim_steps()
 
     def move_ee(self, pos, orn, open=True, t=10, stop_at_contact=False, constrain_joints=[2, 4, 5], damp_base=False):
         orig_q = list(self.robot.get_states()['joint_position'])
@@ -474,9 +474,9 @@ class HSREnv:
         self.set_joint_position(q[:-4], True)
 
         steps = 240 * t
-        return self.steps(steps, stop_at_contact=stop_at_contact)
+        return self.sim_steps(steps, stop_at_contact=stop_at_contact)
 
-    def grasp_primitive(self, pos, angle=0, frame=None, stop_at_contact=False):
+    def grasp_primitive(self, pos, angle=0, frame=None, stop_at_contact=False, postgrasp=-1.0):
         rot = p.getQuaternionFromEuler([np.pi, 0, angle])
         pos, rot = eu.transform(pos, rot, frame)
 
@@ -498,6 +498,9 @@ class HSREnv:
             self.close_gripper()
             # print('done')
             # input('ok?')
+
+            if postgrasp > 0:
+                self.move_ee(pos + np.array([0, 0, postgrasp]), rot)
 
             return True
 
@@ -731,11 +734,12 @@ class WRSEnv(HSREnv):
 
 class GraspEnv(WRSEnv):
     def __init__(self, n_objects=70, config=DEFAULT_CONFIG, setup_room=True,
-                 reset_interval=1, **kwargs):
+                 reset_interval=1, break_collision=True, **kwargs):
         super(GraspEnv, self).__init__(**kwargs)
         self.reset_interval = reset_interval
         self.check_object_collision = True
-        self.break_collision = True
+        self.break_collision_default = break_collision
+        self.break_collision = self.break_collision_default
 
         self.stats = {
             'object_collisions': 0,
@@ -812,9 +816,10 @@ class GraspEnv(WRSEnv):
         self.ep_start_time = time.time()
         self.ep_counter += 1
         self.target_loc = None
-        self.break_collision = True
+        self.break_collision = self.break_collision_default
 
         super().reset()
+        self.reset_env()
 
         hmap = self.update_obs()
 
