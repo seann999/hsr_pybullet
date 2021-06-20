@@ -210,7 +210,7 @@ if __name__ == '__main__':
     val_loader = DataLoader(SegData(args.data, False, args.classify, args.placing, hmap=not args.no_hmap), batch_size=8, num_workers=8, shuffle=True, pin_memory=True, drop_last=True)
 
     model.cuda()
-    optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
     train_losses, val_losses = [], []
     root = args.outdir
@@ -305,5 +305,5 @@ if __name__ == '__main__':
         plt.tight_layout()
         plt.savefig(os.path.join(root, 'loss.png'))
 
-        if ep % 10 == 0:
+        if ep % 1 == 0:
             torch.save(model.state_dict(), os.path.join(root, 'weights_{:03d}.p'.format(ep)))

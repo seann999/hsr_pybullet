@@ -163,7 +163,7 @@ def generate(seed, indices, args):
 
         json.dump(result_data, open(os.path.join(d, 'ids.json'), 'w'))
 
-        print('time:', time.time() - t)
+        print('time:', time.time() - t, env.c_gui.getNumBodies(), env.c_direct.getNumBodies())
 
     print('Finished.')
 

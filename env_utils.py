@@ -286,7 +286,7 @@ def load_container(client, shape='tray'):
         mesh = trimesh.load(what, force='mesh', process=False)
 
     if shape == 'tray':
-        target_extents = np.array([np.random.uniform(0.2, 0.3), np.random.uniform(0.3, 0.4), np.random.uniform(0.01, 0.03)])
+        target_extents = np.array([np.random.uniform(0.2, 0.3), np.random.uniform(0.3, 0.4), np.random.uniform(0.005, 0.03)])
     elif shape == 'left container':
         target_extents = np.array(
             [np.random.uniform(0.05, 0.15), np.random.uniform(0.05, 0.15), np.random.uniform(0.05, 0.15)])
