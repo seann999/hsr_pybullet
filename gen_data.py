@@ -18,6 +18,8 @@ import env_utils as eu
 from scipy.spatial.transform import Rotation as R
 import time
 
+import matplotlib.pyplot as plt
+
 
 def attempt_pick(env):
     ids_visible = np.unique(env.segmap)
@@ -49,22 +51,22 @@ def attempt_pick(env):
     px, py = 1000, 1000
 
     while not (0 <= px < 224 and 0 <= py < 224):
-        if np.random.random() < 0.1:
+        if np.random.random() < 1.0:
             px = np.random.randint(0, 224)
             py = np.random.randint(0, 224)
         else:
             py, px = valid_locs[np.random.randint(len(valid_locs))]
-            py += np.random.randint(low=-10, high=10)
-            px += np.random.randint(low=-10, high=10)
+            py += np.random.randint(low=-10, high=11)
+            px += np.random.randint(low=-10, high=11)
 
     pick_x = env.hmap_bounds[0, 0] + px * env.px_size
     pick_y = env.hmap_bounds[1, 0] + py * env.px_size
     pick_z = env.hmap[py, px] + env.hmap_bounds[2, 0]
     pick_z += 0.24 - 0.07
 
-    env.move_arm({
-        'arm_lift_joint': 0.69,
-    }, fill=False)
+    #env.move_arm({
+    #    'arm_lift_joint': 0.69,
+    #}, fill=False)
 
     num_rots = 16
     angle_idx = np.random.randint(num_rots)
@@ -85,10 +87,10 @@ def attempt_pick(env):
     env.furniture_collision = False
 
     if env.grasp_primitive([pick_x, pick_y, pick_z], angle, frame=env.obs_config['base_frame'], stop_at_contact=False):
-        # env.holding_pose()
-        env.move_arm({
-            'arm_lift_joint': 0.69,
-        }, fill=False)
+        env.holding_pose()
+        #env.move_arm({
+        #    'arm_lift_joint': 0.69,
+        #}, fill=False)
 
         for _ in range(240):
             env.stepSimulation()
@@ -143,8 +145,8 @@ def attempt_place(env):
             py = np.random.randint(0, 224)
         else:
             py, px = valid_locs[np.random.randint(len(valid_locs))]
-            py += np.random.randint(low=-10, high=10)
-            px += np.random.randint(low=-10, high=10)
+            py += np.random.randint(low=-10, high=11)
+            px += np.random.randint(low=-10, high=11)
 
     place_x = env.hmap_bounds[0, 0] + px * env.px_size
     place_y = env.hmap_bounds[1, 0] + py * env.px_size
@@ -196,6 +198,7 @@ def generate(seed, indices, args):
 
     env = GraspEnv(config=config, connect=p.GUI if args.gui else p.DIRECT, ycb=False, full_range=True, break_collision=False)
     env.set_seed(seed)
+    times = []
     # env = make_batch_env(config, n_envs=8)
 
     for i in indices:
@@ -260,6 +263,22 @@ def generate(seed, indices, args):
 
         json.dump(result_data, open(os.path.join(d, 'ids.json'), 'w'))
 
+        #times.append([time.time() - t, env.c_gui.getNumBodies(), env.c_direct.getNumBodies()])
+        times.append([time.time() - t, env.c_gui.getNumBodies()])
+        if seed == 0:
+            plt.clf()
+            fig, ax1 = plt.subplots()
+            X = np.array(times)
+            ax1.plot(X[:, 0], color='tab:red')
+            ax1.set_ylabel('time (secs)')
+            ax1.set_xlabel('episode')
+            ax2 = ax1.twinx()
+            ax2.set_ylabel('getNumBodies')
+            ax2.plot(X[:, 1], color='tab:blue')
+            fig.tight_layout()
+            #plt.plot(X[:, 1])
+            #plt.plot(X[:, 2])
+            plt.savefig('times.png')
         print('time:', time.time() - t, env.c_gui.getNumBodies(), env.c_direct.getNumBodies())
 
     print('Finished.')

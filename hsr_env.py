@@ -128,7 +128,9 @@ class HSREnv:
 
         # print(self.robot.get_joint_infos())
 
-    def reset_env(self):
+    def reset(self):
+        self.c_gui.resetSimulation()
+        self.c_direct.resetSimulation()
         self.c_direct.setGravity(0, 0, -9.8)
         self.c_gui.setGravity(0, 0, -9.8)
         self.c_direct.setPhysicsEngineParameter(enableFileCaching=0)
@@ -645,9 +647,7 @@ class WRSEnv(HSREnv):
         return ids
 
     def reset(self):
-        self.c_gui.resetSimulation()
-        self.c_direct.resetSimulation()
-        super().reset_env()
+        super().reset()
         self.furn_ids = self.generate_room(full_range=self.full_range)
 
         for obj in self.obj_ids:
@@ -768,8 +768,9 @@ class GraspEnv(WRSEnv):
         self.ep_counter = 0
 
         self.object_collision, self.furniture_collision = False, False
+        self.attach_wrapper()
 
-    def reset_env(self):
+    def attach_wrapper(self):
         def wrapper(fn):
             def wrapper():
                 fn()
@@ -819,7 +820,7 @@ class GraspEnv(WRSEnv):
         self.break_collision = self.break_collision_default
 
         super().reset()
-        self.reset_env()
+        # self.reset_env()
 
         hmap = self.update_obs()
 
