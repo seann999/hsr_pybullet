@@ -149,8 +149,9 @@ class SegData:
 
     def __getitem__(self, i):
         if self.balance:
-            s = int(np.random.random() > 0.5)
-            idx = np.random.choice(np.where(self.success == s)[0])
+            s = 1#int(np.random.random() > 0.5)
+            valid = np.where(self.success == s)[0]
+            idx = valid[0]#np.random.choice(valid)
         else:
             idx = i
 
@@ -354,6 +355,38 @@ if __name__ == '__main__':
         ss = np.random.SeedSequence([worker_id, base_seed])
         # More than 128 bits (4 32-bit words) would be overkill.
         np.random.seed(ss.generate_state(4))
+
+    d = SegData(args.data, True, args.classify, args.placing, args.picking, hmap=not args.no_hmap, balance=True)
+    plt.clf()
+    R = 8
+    for i in range(R):
+        x, y, m = d[0]
+
+        import colorsys
+        y_idx = y.argmax(0)
+        y_prob = np.clip(y.max(0), 0, 1)
+
+        y_rgb = np.zeros(list(y.shape[1:]) + [3], dtype=np.float32)
+
+        N = y_prob.shape[0]
+        for k in range(N):
+            rgb = colorsys.hsv_to_rgb(k / N, 1.0, 1.0)
+            y_rgb[y_idx == k] = rgb
+
+        y_rgb *= y_prob[:, :, None]
+
+        plt.subplot(2, R, i+1)
+        plt.imshow(x[0])
+        ys, xs = np.where(y_prob == 1)
+        y = ys.mean()
+        x = xs.mean()
+        plt.plot([x], [y], 'r*', markersize=10)
+        plt.subplot(2, R, i+R+1)
+        plt.imshow(np.uint8(y_rgb * 255))
+    plt.gcf().set_size_inches(32, 8)
+    plt.gcf().tight_layout()
+    plt.savefig('augs.png')
+    exit()
 
     model = FCN(num_rotations=output_channels, use_fc=True, fast=True, debug=True, dilation=args.classify)
     train_loader = DataLoader(SegData(args.data, True, args.classify, args.placing, args.picking, hmap=not args.no_hmap, balance=True), batch_size=bs, num_workers=8, shuffle=True, pin_memory=True, drop_last=True, worker_init_fn=init_fn)
