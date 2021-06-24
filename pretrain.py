@@ -109,11 +109,12 @@ class SegData:
         self.balance = balance
         self.hmap = hmap
         self.train = train
+        self.offset = 0
 
         if picking:
             self.transform = A.Compose([
                 # A.Cutout(max_h_size=10, max_w_size=10),
-                A.ShiftScaleRotate(shift_limit=0.5, scale_limit=0, rotate_limit=0, border_mode=cv2.BORDER_CONSTANT, value=0),
+                A.ShiftScaleRotate(shift_limit=0, scale_limit=0, rotate_limit=0, border_mode=cv2.BORDER_CONSTANT, value=0),
             ])
         else:
             self.transform = A.Compose([
@@ -197,7 +198,7 @@ class SegData:
             x, y = pdata['pick_px']
             x, y = np.clip(x, 0, 223), np.clip(y, 0, 223)
             val = np.zeros(16)
-            rot_idx = np.random.randint(16)
+            rot_idx = self.offset#np.random.randint(16)
             r = (pdata['pick_rot_idx'] - rot_idx + 16) % 16
 
             mask = np.zeros(gtmap.shape, dtype=np.float32)
@@ -360,6 +361,7 @@ if __name__ == '__main__':
     plt.clf()
     R = 8
     for i in range(R):
+        d.offset = i
         x, y, m = d[0]
 
         import colorsys
@@ -368,9 +370,11 @@ if __name__ == '__main__':
 
         y_rgb = np.zeros(list(y.shape[1:]) + [3], dtype=np.float32)
 
-        N = y_prob.shape[0]
+        N = y.shape[0]
         for k in range(N):
             rgb = colorsys.hsv_to_rgb(k / N, 1.0, 1.0)
+            if np.sum(y[k,:,:]) > 0:
+                print('>', i, k, np.sum(y[k,:,:]))
             y_rgb[y_idx == k] = rgb
 
         y_rgb *= y_prob[:, :, None]
@@ -378,9 +382,9 @@ if __name__ == '__main__':
         plt.subplot(2, R, i+1)
         plt.imshow(x[0])
         ys, xs = np.where(y_prob == 1)
-        y = ys.mean()
-        x = xs.mean()
-        plt.plot([x], [y], 'r*', markersize=10)
+        py = ys.mean()
+        px = xs.mean()
+        plt.plot([px], [py], 'r*', markersize=10)
         plt.subplot(2, R, i+R+1)
         plt.imshow(np.uint8(y_rgb * 255))
     plt.gcf().set_size_inches(32, 8)
