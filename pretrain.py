@@ -341,7 +341,7 @@ if __name__ == '__main__':
     else:
         output_channels = 16
    
-    bs = 32
+    bs = 8 if args.picking else 32 
     if args.no_hmap:
         bs = 16
     #elif args.picking:
@@ -355,7 +355,7 @@ if __name__ == '__main__':
         # More than 128 bits (4 32-bit words) would be overkill.
         np.random.seed(ss.generate_state(4))
 
-    model = FCN(num_rotations=output_channels, use_fc=True, fast=True, debug=True, dilation=args.classify)
+    model = FCN(num_rotations=output_channels, use_fc=True, fast=not args.picking, debug=True, dilation=args.classify)
     train_loader = DataLoader(SegData(args.data, True, args.classify, args.placing, args.picking, hmap=not args.no_hmap, balance=True), batch_size=bs, num_workers=8, shuffle=True, pin_memory=True, drop_last=True, worker_init_fn=init_fn)
     val_loader = DataLoader(SegData(args.data, False, args.classify, args.placing, args.picking, hmap=not args.no_hmap), batch_size=8, num_workers=8, shuffle=True, pin_memory=True, drop_last=True, worker_init_fn=init_fn)
 
@@ -435,9 +435,10 @@ if __name__ == '__main__':
             else:
                 x, y = d
 
-            y_hat = model.forward(phi(x).cuda())
-            #loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
-            loss = calc_loss(y_hat, y, m)
+            with torch.no_grad():
+                y_hat = model.forward(phi(x).cuda())
+                #loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
+                loss = calc_loss(y_hat, y, m)
 
             loss = loss.cpu().detach().numpy()
             total_loss += loss

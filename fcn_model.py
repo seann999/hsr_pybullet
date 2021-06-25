@@ -36,7 +36,7 @@ class FCN(nn.Module):
             nn.Conv2d(32, out, 1, 1),
           )
 
-        self.decoder = decoder(512, num_rotations)
+        self.decoder = decoder(512, num_rotations if self.fast else 1)
         #self.fcn = deeplabv3_resnet50(pretrained=False, num_classes=16)
         #self.head = nn.Sequential(
         #    nn.Conv2d(32, 32, 1, 1),
@@ -104,13 +104,7 @@ class FCN(nn.Module):
                 else:
                     rotate_depth = F.grid_sample(x.detach(), flow_grid_before, mode='nearest')
 
-                # Compute intermediate features
-                #output_map = self.end(torch.cat([rotate_vit_h, self.backbone(rotate_depth)], 1))
-                h = self.backbone(rotate_depth)
-                #if self.use_fc:
-                #    a = self.fc(h[:, 0].view(-1, 56*56)).view(-1, 1, 56, 56)
-                #    h = torch.cat([h, a], 1)
-                output_map = self.end(h)
+                output_map = self.decoder(self.backbone.features(rotate_depth))
 
                 # Compute sample grid for rotation AFTER branches
                 affine_mat_after = np.asarray(
@@ -128,16 +122,11 @@ class FCN(nn.Module):
 
                 # Forward pass through branches, undo rotation on output predictions, upsample results
                 h = F.grid_sample(output_map, flow_grid_after, mode='nearest')
-                if self.use_fc:
-                    h = torch.minimum(p, h)
                 output_prob.append(h)
 
         out = torch.stack(output_prob)  # R x N x 1 x H x W
         out = out.squeeze(2)  # R x N x H x W
         out = out.permute(1, 0, 2, 3)
-
-        if self.debug:
-            return out, p
 
         return out
 
