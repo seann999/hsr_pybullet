@@ -733,11 +733,9 @@ class WRSEnv(HSREnv):
 
 
 class GraspEnv(WRSEnv):
-    def __init__(self, n_objects=70, config=DEFAULT_CONFIG, setup_room=True,
-                 reset_interval=1, break_collision=True, **kwargs):
+    def __init__(self, n_objects=70, config=DEFAULT_CONFIG, setup_room=True, break_collision=True, check_object_collision=True, **kwargs):
         super(GraspEnv, self).__init__(**kwargs)
-        self.reset_interval = reset_interval
-        self.check_object_collision = True
+        self.check_object_collision = check_object_collision
         self.break_collision_default = break_collision
         self.break_collision = self.break_collision_default
 
@@ -1001,7 +999,7 @@ class GraspEnv(WRSEnv):
             self.hmap[self.hmap == 0] = surface_height - self.hmap_bounds[2, 0]
             z = self.hmap[grasp_x[0], grasp_x[1]] + self.hmap_bounds[2, 0]
             z += 0.24 - 0.07
-            r2 = np.linalg.norm(np.array([grasp_px, grasp_py]) - np.array([0, 112])) / 224.0 * -0.3
+            r2 = 0#np.linalg.norm(np.array([grasp_px, grasp_py]) - np.array([0, 112])) / 224.0 * -0.3
 
             if self.grasp_primitive([x, y, z], angle, frame=self.obs_config['base_frame'], stop_at_contact=False):
                 self.holding_pose()
@@ -1018,16 +1016,21 @@ class GraspEnv(WRSEnv):
                     if obj in self.placed_objects:
                         grasp_success = False
                     elif grasp_success:
-                        preplace = True
-                        self.break_collision = False
-                        self.preplace()
-                        self.break_collision = True
-                        self.object_collision = False
+                        placing = False
+
+                        if placing:
+                            preplace = True
+                            self.break_collision = False
+                            self.preplace()
+                            self.break_collision = True
+                            self.object_collision = False
 
                         obj = self.check_grasp()
                         if obj is None:  # object dropped while moving
                             grasp_success = False
                             self.target_loc = None
+                        else:
+                            self.c_gui.resetBasePositionAndOrientation(obj, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
 
                 reward = (1 if grasp_success else -0.1) + r2
 
@@ -1073,6 +1076,8 @@ class GraspEnv(WRSEnv):
         elif self.object_collision:
             reward = 0 + r2#.25#min(reward * 0.1, reward)
             done = True
+
+            assert self.check_object_collision
 
         if done:
             self.stats['episodes'] += 1

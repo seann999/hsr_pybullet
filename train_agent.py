@@ -55,8 +55,8 @@ class QFCN(nn.Module):
 
         rots = 16
 
-        self.grasp_model = FCN(rots, use_fc=True, fast=True)
-        self.look_model = FCN(1, use_fc=True, fast=True)
+        self.grasp_model = FCN(rots, fast=True)
+        self.look_model = FCN(1, fast=True)
         self.debug = debug
 
         if pretrain:
@@ -112,7 +112,7 @@ def phi(x):
 
 
 def make_env(idx, config):
-    env = GraspEnv(connect=p.DIRECT, config=config, reset_interval=5)
+    env = GraspEnv(connect=p.DIRECT, config=config, check_object_collision=False)
     env.set_seed(idx)
     return env
 
@@ -147,7 +147,7 @@ if __name__ == '__main__':
 
     # eval_env = GraspEnv(connect=p.DIRECT, config=config)
     # eval_env = GraspEnv(check_visibility=True, connect=p.DIRECT)
-    env = make_batch_env(config)
+    env = make_batch_env(config, 48)
     q_func = QFCN(pretrain=args.pretrain)
 
     gamma = 0.5
@@ -170,7 +170,7 @@ if __name__ == '__main__':
         replay_start_size=16 if args.test_run else 4000,
         update_interval=4,
         target_update_interval=1000,
-        minibatch_size=8 if args.test_run else 8,
+        minibatch_size=8 if args.test_run else 32,
         gpu=gpu,
         phi=phi,
         max_grad_norm=100,

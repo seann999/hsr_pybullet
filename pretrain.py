@@ -120,18 +120,16 @@ class SegData:
                 A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0, rotate_limit=360 if placing else 30, border_mode=cv2.BORDER_CONSTANT, value=0),
             ])
 
-        valid = []
         success = []
-        for f in self.files:
-            try:
+
+        if self.picking:
+            for f in self.files:
                 info = json.load(open(os.path.join(self.root, f, 'ids.json'), 'r'))
                 pdata = info['pick']
                 success.append(float(pdata['success'] and not pdata['furniture_collision']))
-                valid.append(f)
-            except json.decoder.JSONDecodeError:
-                print(f, 'is corrupt')
+        else:
+            success = [1] * len(self.files)
 
-        self.files = valid
         self.success = np.array(success)
         # analyze(root, self.files)
         # analyze2(root, self.files)
@@ -220,13 +218,21 @@ class SegData:
         else:
             placed = info.get('placed_obj_ids', [])
             objs = [i for i in info['obj_ids'] if i not in placed and (segmap == i).sum() > 0]
-            if len(objs) > 0:
-                coords = [np.stack(np.where(segmap == i)).T.mean(0) for i in objs]
-                dists = np.linalg.norm(np.array(coords) - np.array([[112, 0]]), axis=1)
-                nearest = objs[np.argmin(dists)]
-                gtmap = segmap == nearest
+            nearest_only = False
+            if nearest_only:
+                if len(objs) > 0:
+                    coords = [np.stack(np.where(segmap == i)).T.mean(0) for i in objs]
+                    dists = np.linalg.norm(np.array(coords) - np.array([[112, 0]]), axis=1)
+                    nearest = objs[np.argmin(dists)]
+                    gtmap = segmap == nearest
+                else:
+                    gtmap = np.zeros_like(segmap)
             else:
-                gtmap = np.zeros_like(segmap)
+                if len(objs) > 0:
+                    gtmap = np.logical_or.reduce([segmap == id for id in objs])
+                else:
+                    gtmap = np.zeros_like(segmap)
+            
             gtmap = gtmap.astype(np.float32)
             # gtmap = cv2.warpAffine(gtmap, rot_mat, (224, 224))
 
@@ -306,7 +312,7 @@ def create_fig(y_hat, y, classification=False, placing=False, picking=False):
             ax[2, i].imshow(np.uint8(y_rgb * 255))
         else:
             ax[1, i].imshow(y_hat[i, 0], vmin=0, vmax=1)
-            ax[2, i].imshow(y[i, 0], vmin=0, vmax=1)
+            ax[2, i].imshow(y[i], vmin=0, vmax=1)
         #ax[3, i].imshow(g[i, 0], vmin=0, vmax=1)
         #ax[4, i].imshow(p[i, 0], vmin=0, vmax=1)
 
@@ -355,9 +361,9 @@ if __name__ == '__main__':
         # More than 128 bits (4 32-bit words) would be overkill.
         np.random.seed(ss.generate_state(4))
 
-    model = FCN(num_rotations=output_channels, use_fc=True, fast=not args.picking, debug=True, dilation=args.classify)
-    train_loader = DataLoader(SegData(args.data, True, args.classify, args.placing, args.picking, hmap=not args.no_hmap, balance=True), batch_size=bs, num_workers=8, shuffle=True, pin_memory=True, drop_last=True, worker_init_fn=init_fn)
-    val_loader = DataLoader(SegData(args.data, False, args.classify, args.placing, args.picking, hmap=not args.no_hmap), batch_size=8, num_workers=8, shuffle=True, pin_memory=True, drop_last=True, worker_init_fn=init_fn)
+    model = FCN(num_rotations=output_channels, fast=True, dilation=args.classify)
+    train_loader = DataLoader(SegData(args.data, True, classify=args.classify, placing=args.placing, picking=args.picking, hmap=not args.no_hmap, balance=args.picking), batch_size=bs, num_workers=8, shuffle=True, pin_memory=True, drop_last=True, worker_init_fn=init_fn)
+    val_loader = DataLoader(SegData(args.data, False, classify=args.classify, placing=args.placing, picking=args.picking, hmap=not args.no_hmap), batch_size=8, num_workers=8, shuffle=True, pin_memory=True, drop_last=True, worker_init_fn=init_fn)
 
     model.cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)

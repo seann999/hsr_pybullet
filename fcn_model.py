@@ -7,13 +7,11 @@ import resnet
 
 
 class FCN(nn.Module):
-    def __init__(self, num_rotations=16, use_fc=False, fast=False, debug=False, dilation=False):
+    def __init__(self, num_rotations=16, fast=False, dilation=False):
         super().__init__()
 
         self.num_rotations = num_rotations
         self.use_cuda = True
-        self.use_fc = use_fc
-        self.debug = debug
         self.fast = fast
 
         #modules = list(models.resnet18().children())[:-5]
@@ -63,21 +61,21 @@ class FCN(nn.Module):
 
         return x
 
-    def forward(self, x):
+    def forward(self, x, force_rotations=-1):
         bs = len(x)
         output_prob = []
 
-        if self.num_rotations == 1 or self.fast:
+        if force_rotations == -1 and (self.num_rotations == 1 or self.fast):
             #h = self.backbone(self.cat_grid(x))
             #g = self.end(h)
             g = self.decoder(self.backbone.features(x))
             #h = self.fcn(x)['out']
             #g = self.head(torch.cat([h, g], 1))
-
             return g
         else:
-            for rotate_idx in range(self.num_rotations):
-                rotate_theta = np.radians(rotate_idx * (360 / self.num_rotations))
+            rotations = force_rotations if force_rotations > 0 else self.num_rotations
+            for rotate_idx in range(rotations):
+                rotate_theta = np.radians(rotate_idx * (360 / rotations))
 
                 # Compute sample grid for rotation BEFORE neural network
                 affine_mat_before = np.asarray(
