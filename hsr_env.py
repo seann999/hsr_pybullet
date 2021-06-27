@@ -23,8 +23,16 @@ CAMERA_XTION_CONFIG = [{
     'intrinsics': (537.4933389299223, 0.0, 319.9746375212718, 0.0, 536.5961755975517, 244.54846607953, 0.0, 0.0, 1.0),
     'position': None,
     'rotation': None,
-    # 'lookat': (0, 0, 0),
     'zrange': (0.5, 10.),
+    'noise': False
+}]
+
+CAMERA_REALSENSE_CONFIG = [{
+    'image_size': (480, 640),
+    'intrinsics': (607.3814086914062, 0.0, 315.9123840332031, 0.0, 607.2514038085938, 233.77308654785156, 0.0, 0.0, 1.0),
+    'position': None,
+    'rotation': None,
+    'zrange': (0.3, 10.),
     'noise': False
 }]
 
@@ -186,31 +194,38 @@ class HSREnv:
 
         return uppers, lowers, ranges, rest
 
-    def get_heightmap(self, only_render=False, bounds=np.array([[0, 3], [-1.5, 1.5], [0, 0.3]]), px_size=0.01,
+    def get_heightmap(self, only_render=False, bounds=np.array([[0, 3], [-1.5, 1.5], [0, 0.3]]), px_size=0.01, hand=False,
                       **kwargs):
         m_pos, m_orn = self.c_gui.getBasePositionAndOrientation(self.marker_id)
         self.c_gui.resetBasePositionAndOrientation(self.marker_id, (0, 100, 0), (0, 0, 0, 1))
 
-        head_state = self.robot.get_link_state_by_name('head_rgbd_sensor_gazebo_frame_joint')
-        orn = list(head_state.world_link_frame_orientation)
-        orn = (R.from_quat(orn) * R.from_euler('YZ', [0.5 * np.pi, -0.5 * np.pi])).as_quat()
-        head_pose = list(head_state.world_link_frame_position), orn
-        head_mat = pose2mat(*head_pose)
+        if hand:
+            cam_state = self.robot.get_link_state_by_name('hand_camera_gazebo_frame_joint')
+            orn = list(cam_state.world_link_frame_orientation)
+            orn = (R.from_quat(orn) * R.from_euler('YZ', [0.5 * np.pi, -0.5 * np.pi])).as_quat()
+            cam_pose = list(cam_state.world_link_frame_position), orn
+        else:
+            cam_state = self.robot.get_link_state_by_name('head_rgbd_sensor_gazebo_frame_joint')
+            orn = list(cam_state.world_link_frame_orientation)
+            orn = (R.from_quat(orn) * R.from_euler('YZ', [0.5 * np.pi, -0.5 * np.pi])).as_quat()
+            cam_pose = list(cam_state.world_link_frame_position), orn
+
+        cam_mat = pose2mat(*cam_pose)
 
         base_state = self.robot.get_link_state_by_name('base_footprint_joint')
         base_pose = list(base_state.world_link_frame_position), list(base_state.world_link_frame_orientation)
         base_mat = pose2mat(*base_pose)
 
-        camera_config = copy.deepcopy(CAMERA_XTION_CONFIG)
-        camera_config[0]['position'] = list(head_state.world_link_frame_position)
+        camera_config = copy.deepcopy(CAMERA_REALSENSE_CONFIG if hand else CAMERA_XTION_CONFIG)
+        camera_config[0]['position'] = list(cam_state.world_link_frame_position)
         camera_config[0]['rotation'] = orn
 
         if only_render:
             rgb, depth, seg = eu.render_camera(self.c_gui, camera_config[0])
 
-            head_rel_mat = np.matmul(np.linalg.inv(base_mat), head_mat)
-            camera_config[0]['position'] = head_rel_mat[:3, -1]
-            camera_config[0]['rotation'] = R.from_matrix(head_rel_mat[:3, :3]).as_quat()
+            cam_rel_mat = np.matmul(np.linalg.inv(base_mat), cam_mat)
+            camera_config[0]['position'] = cam_rel_mat[:3, -1]
+            camera_config[0]['rotation'] = R.from_matrix(cam_rel_mat[:3, :3]).as_quat()
             camera_config[0]['base_frame'] = base_mat
 
             out = rgb, depth, seg, camera_config[0]
@@ -858,9 +873,9 @@ class GraspEnv(WRSEnv):
 
         return hmap
 
-    def update_obs(self):
+    def update_obs(self, hand=False):
         rgb, depth, seg, config = self.get_heightmap(only_render=True, return_seg=True, bounds=self.hmap_bounds,
-                                                         px_size=self.px_size)
+                                                         px_size=self.px_size, hand=hand)
 
         hmap, cmap, segmap, noisy_depth = to_maps(rgb, depth, seg, config, self.hmap_bounds, self.px_size,
                                      depth_noise=self.config['depth_noise'], rot_noise=self.config['rot_noise'])
@@ -1108,7 +1123,25 @@ class GraspEnv(WRSEnv):
 
             print('seed:', self.seed, self.stats, time.time() - self.ep_start_time)
 
-        hmap = self.update_obs()
+        if action_type != 'look' and np.random.random() < 0.5:
+            self.move_arm({
+                'arm_lift_joint': np.random.uniform(0.2, 0.69),
+                'arm_flex_joint': -1.57 + np.random.uniform(-0.1, 0.1) * np.pi,
+                'arm_roll_joint': np.random.uniform(-0.1, 0.1) * np.pi,
+                'wrist_roll_joint': np.random.uniform(-1.57, 1.57),
+            }, fill=False)
+
+            if self.furniture_collision:
+                self.holding_pose()
+                hmap = self.update_obs(False)
+                self.furniture_collision = False
+            else:
+                hmap = self.update_obs(True)
+        else:
+            if action_type != 'place':
+                self.holding_pose()
+
+            hmap = self.update_obs(False)
 
         return hmap, reward, done, {}
 
