@@ -51,7 +51,7 @@ def attempt_pick(env):
     px, py = 1000, 1000
 
     while not (0 <= px < 224 and 0 <= py < 224):
-        if np.random.random() < 1.0:
+        if np.random.random() < 0.1:
             px = np.random.randint(0, 224)
             py = np.random.randint(0, 224)
         else:
@@ -290,7 +290,7 @@ if __name__ == '__main__':
     parser.add_argument('--pick', action='store_true')
     parser.add_argument('--place', action='store_true')
     parser.add_argument('--show-maps', action='store_true')
-    parser.add_argument('--root', type=str, default='pretrain_test')
+    parser.add_argument('--root', type=str, default='pretrain_data/test')
     parser.add_argument('--workers', type=int, default=1)
     args = parser.parse_args()
 

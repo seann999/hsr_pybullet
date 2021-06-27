@@ -125,6 +125,8 @@ class HSREnv:
         self.c_direct.setAdditionalSearchPath(pybullet_data.getDataPath())
 
         self.break_criteria = lambda: False
+        self.object_collision, self.furniture_collision = False, False
+        self.break_collision = False
 
         # print(self.robot.get_joint_infos())
 
@@ -393,7 +395,7 @@ class HSREnv:
     def stepSimulation(self):
         self.c_gui.stepSimulation()
 
-    def move_base(self, x, y, angle):
+    def move_base_abs(self, x, y, angle):
         q = list(self.robot.get_states()['joint_position'])
         q[0] = x
         q[1] = y
@@ -401,6 +403,14 @@ class HSREnv:
 
         self.set_joint_position(q[:-4], True)
         self.sim_steps()
+
+    def move_base_rel(self, x, y, angle):
+        q = list(self.robot.get_states()['joint_position'])
+        new_x = q[0] + np.cos(q[2]) * x - np.sin(q[2]) * y
+        new_y = q[1] + np.sin(q[2]) * x + np.cos(q[2]) * y
+        angle = q[2] + angle
+
+        self.move_base_abs(new_x, new_y, angle)
 
     def move_ee(self, pos, orn, open=True, t=10, stop_at_contact=False, constrain_joints=[2, 4, 5], damp_base=False):
         orig_q = list(self.robot.get_states()['joint_position'])
@@ -478,11 +488,20 @@ class HSREnv:
         steps = 240 * t
         return self.sim_steps(steps, stop_at_contact=stop_at_contact)
 
-    def grasp_primitive(self, pos, angle=0, frame=None, stop_at_contact=False, postgrasp=-1.0):
+    def grasp_primitive(self, pos, angle=0, frame=None, stop_at_contact=False):
         rot = p.getQuaternionFromEuler([np.pi, 0, angle])
         pos, rot = eu.transform(pos, rot, frame)
 
         if np.abs(pos[0]) < BOUNDS and np.abs(pos[1]) < BOUNDS:
+            input('start')
+            self.move_arm({
+                'arm_lift_joint': min(0.69, pos[2] + 0.1),
+                'arm_flex_joint': -1.57,
+                'arm_roll_joint': 0,
+                'wrist_flex_joint': -1.57,
+            }, fill=False)
+            input('end')
+
             self.move_ee(pos + np.array([0, 0, 0.3]), rot)
 
             if self.break_criteria():
@@ -501,8 +520,14 @@ class HSREnv:
             # print('done')
             # input('ok?')
 
-            if postgrasp > 0:
-                self.move_ee(pos + np.array([0, 0, postgrasp]), rot)
+            self.move_ee(pos + np.array([0, 0, 0.3]), rot)
+
+            tmp = self.furniture_collision
+            self.break_collision = False
+            if pos[2] > 0.4:  # avoid table collision
+                self.move_base_rel(-0.5, 0, 0)
+            self.furniture_collision = tmp
+            self.break_collision = True
 
             return True
 
@@ -765,7 +790,6 @@ class GraspEnv(WRSEnv):
         self.steps = 0
         self.ep_counter = 0
 
-        self.object_collision, self.furniture_collision = False, False
         self.attach_wrapper()
 
     def attach_wrapper(self):
@@ -861,7 +885,7 @@ class GraspEnv(WRSEnv):
         base_y += np.random.uniform(-0.05, 0.05)
         base_rot = np.pi + np.random.uniform(-10/180*np.pi, 10/180*np.pi)
 
-        self.move_base(base_x, base_y, base_rot)
+        self.move_base_abs(base_x, base_y, base_rot)
         self.move_joints({
             'head_tilt_joint': np.random.uniform(-np.pi*0.4, -np.pi*0.2),
         }, sim=True)
@@ -904,7 +928,7 @@ class GraspEnv(WRSEnv):
 
         self.open_gripper()
         self.move_ee(pos + np.array([0, 0, 0.1]), rot, damp_base=d)
-        self.move_base(base_x, base_y, base_rot)
+        self.move_base_abs(base_x, base_y, base_rot)
         self.holding_pose()
         self.close_gripper()
 
@@ -958,14 +982,7 @@ class GraspEnv(WRSEnv):
             action_type = 'place'
 
         reward = 0
-        r2 = 0
         done = False
-
-        # print(action_type)
-        # RANDOM ACTIONS!
-        #if self.target_loc is not None:
-        #    assert action_type == 'place', 'loc is {} but action is {}, {}'.format(self.target_loc, action_type, self.last_obs[1])
-        preplace = False
 
         if self.target_loc is not None and action_type != 'place':
             reward = -0.25
@@ -999,7 +1016,6 @@ class GraspEnv(WRSEnv):
             self.hmap[self.hmap == 0] = surface_height - self.hmap_bounds[2, 0]
             z = self.hmap[grasp_x[0], grasp_x[1]] + self.hmap_bounds[2, 0]
             z += 0.24 - 0.07
-            r2 = 0#np.linalg.norm(np.array([grasp_px, grasp_py]) - np.array([0, 112])) / 224.0 * -0.3
 
             if self.grasp_primitive([x, y, z], angle, frame=self.obs_config['base_frame'], stop_at_contact=False):
                 self.holding_pose()
@@ -1019,7 +1035,6 @@ class GraspEnv(WRSEnv):
                         placing = False
 
                         if placing:
-                            preplace = True
                             self.break_collision = False
                             self.preplace()
                             self.break_collision = True
@@ -1031,11 +1046,12 @@ class GraspEnv(WRSEnv):
                             self.target_loc = None
                         else:
                             self.c_gui.resetBasePositionAndOrientation(obj, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
+                            self.close_gripper()
 
-                reward = (1 if grasp_success else -0.1) + r2
+                reward = 1 if grasp_success else -0.1
 
                 if grasp_success:
-                    if self.object_collision and not preplace:
+                    if self.object_collision:
                         self.stats['grasp_success_collision'] += 1
                     else:
                         self.stats['grasp_success_safe'] += 1
@@ -1071,10 +1087,10 @@ class GraspEnv(WRSEnv):
         self.stats['object_collisions'] += int(self.object_collision)
 
         if self.furniture_collision:
-            reward = -0.25 + r2
+            reward = -0.25
             done = True
         elif self.object_collision:
-            reward = 0 + r2#.25#min(reward * 0.1, reward)
+            reward = 0
             done = True
 
             assert self.check_object_collision

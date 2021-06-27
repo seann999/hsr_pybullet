@@ -29,7 +29,7 @@ if __name__ == '__main__':
 
     config = {'depth_noise': True, 'rot_noise': True, 'action_grasp': True,
               'action_look': True, 'spawn_mode': 'circle'}
-    env = GraspEnv(config=config, n_objects=args.n_objects, connect=p.GUI if args.gui else p.DIRECT, ycb=not args.shapenet)
+    env = GraspEnv(config=config, n_objects=args.n_objects, connect=p.GUI if args.gui else p.DIRECT, ycb=not args.shapenet, check_object_collision=False)
 
     class MaxAgent:
         def __init__(self):
