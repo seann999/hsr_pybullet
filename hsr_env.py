@@ -326,6 +326,10 @@ class HSREnv:
         for joint_index, joint_angle in zip(robot.free_joint_indices, q):
             client.resetJointState(robot.id, joint_index, joint_angle)
 
+            if joint_index == 2:
+                client.setJointMotorControl2(robot.id, joint_index, p.POSITION_CONTROL,
+                                        targetPosition=joint_angle)
+
     def reset_pose(self):
         neutral = [0 for _ in self.robot.get_states()['joint_position']]
         neutral[0] = np.random.uniform(-2, -1)# q[0]
@@ -489,20 +493,23 @@ class HSREnv:
         return self.sim_steps(steps, stop_at_contact=stop_at_contact)
 
     def grasp_primitive(self, pos, angle=0, frame=None, stop_at_contact=False):
-        rot = p.getQuaternionFromEuler([np.pi, 0, angle])
+        euler = [np.pi, 0, angle]
+        # euler = [0.75 * np.pi, 0, angle]
+        rot = p.getQuaternionFromEuler(euler)
         pos, rot = eu.transform(pos, rot, frame)
 
         if np.abs(pos[0]) < BOUNDS and np.abs(pos[1]) < BOUNDS:
-            input('start')
             self.move_arm({
                 'arm_lift_joint': min(0.69, pos[2] + 0.1),
                 'arm_flex_joint': -1.57,
                 'arm_roll_joint': 0,
                 'wrist_flex_joint': -1.57,
             }, fill=False)
-            input('end')
 
-            self.move_ee(pos + np.array([0, 0, 0.3]), rot)
+            # print(R.from_euler('xyz', euler).as_matrix())
+            rvec = R.from_euler('xyz', euler).as_matrix()[:3, 2]
+
+            self.move_ee(pos - 0.3 * rvec, rot)
 
             if self.break_criteria():
                 return True
@@ -1026,6 +1033,8 @@ class GraspEnv(WRSEnv):
                     for _ in range(240):
                         self.stepSimulation()
 
+                    self.close_gripper()
+
                     obj = self.check_grasp()
                     grasp_success = obj is not None
 
@@ -1046,8 +1055,8 @@ class GraspEnv(WRSEnv):
                             self.target_loc = None
                         else:
                             self.c_gui.resetBasePositionAndOrientation(obj, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
-                            self.close_gripper()
 
+                self.close_gripper()
                 reward = 1 if grasp_success else -0.1
 
                 if grasp_success:
