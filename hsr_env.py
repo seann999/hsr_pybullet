@@ -1048,11 +1048,10 @@ class GraspEnv(WRSEnv):
                             self.preplace()
                             self.break_collision = True
                             self.object_collision = False
-
-                        obj = self.check_grasp()
-                        if obj is None:  # object dropped while moving
-                            grasp_success = False
-                            self.target_loc = None
+                            obj = self.check_grasp()
+                            if obj is None:  # object dropped while moving
+                                grasp_success = False
+                                self.target_loc = None
                         else:
                             self.c_gui.resetBasePositionAndOrientation(obj, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
 
