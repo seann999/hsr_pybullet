@@ -311,7 +311,7 @@ def create_fig(y_hat, y, classification=False, placing=False, picking=False):
             ax[1, i].imshow(np.uint8(y_hat_rgb * 255))
             ax[2, i].imshow(np.uint8(y_rgb * 255))
         else:
-            ax[1, i].imshow(y_hat[i, 0], vmin=0, vmax=1)
+            ax[1, i].imshow(y_hat[i].max(0), vmin=0, vmax=1)
             ax[2, i].imshow(y[i], vmin=0, vmax=1)
         #ax[3, i].imshow(g[i, 0], vmin=0, vmax=1)
         #ax[4, i].imshow(p[i, 0], vmin=0, vmax=1)
@@ -330,6 +330,7 @@ if __name__ == '__main__':
     parser.add_argument('--picking', action='store_true')
     parser.add_argument('--placing', action='store_true')
     parser.add_argument('--no-hmap', action='store_true')
+    parser.add_argument('--fast', action='store_true')
     args = parser.parse_args() 
 
     def phi(x):
@@ -348,6 +349,8 @@ if __name__ == '__main__':
         output_channels = 16
    
     bs = 8 if args.picking else 32 
+    if not args.fast:
+        bs = 8
     if args.no_hmap:
         bs = 16
     #elif args.picking:
@@ -361,7 +364,7 @@ if __name__ == '__main__':
         # More than 128 bits (4 32-bit words) would be overkill.
         np.random.seed(ss.generate_state(4))
 
-    model = FCN(num_rotations=output_channels, fast=True, dilation=args.classify)
+    model = FCN(num_rotations=output_channels, fast=args.fast, dilation=args.classify)
     train_loader = DataLoader(SegData(args.data, True, classify=args.classify, placing=args.placing, picking=args.picking, hmap=not args.no_hmap, balance=args.picking), batch_size=bs, num_workers=8, shuffle=True, pin_memory=True, drop_last=True, worker_init_fn=init_fn)
     val_loader = DataLoader(SegData(args.data, False, classify=args.classify, placing=args.placing, picking=args.picking, hmap=not args.no_hmap), batch_size=8, num_workers=8, shuffle=True, pin_memory=True, drop_last=True, worker_init_fn=init_fn)
 

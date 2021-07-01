@@ -739,17 +739,7 @@ class GraspEnv(WRSEnv):
         self.break_collision_default = break_collision
         self.break_collision = self.break_collision_default
 
-        self.stats = {
-            'object_collisions': 0,
-            'furniture_collisions': 0,
-            'episodes': 0,
-            'grasp_success_collision': 0,
-            'grasp_success_safe': 0,
-            'grasp_failure_collision': 0,
-            'grasp_failure_safe': 0,
-            'grasp_attempts': 0,
-            'oob_actions': 0,
-        }
+        self.stats_history = []
 
         self.observation_space = Box(-1, 1, (self.res, self.res))
         self.config = config
@@ -819,6 +809,18 @@ class GraspEnv(WRSEnv):
 
         super().reset()
         # self.reset_env()
+        self.stats = {
+            'grasp_rotations': [0] * 16,
+            'object_collisions': 0,
+            'furniture_collisions': 0,
+            'episodes': 0,
+            'grasp_success_collision': 0,
+            'grasp_success_safe': 0,
+            'grasp_failure_collision': 0,
+            'grasp_failure_safe': 0,
+            'grasp_attempts': 0,
+            'oob_actions': 0,
+        }
 
         hmap = self.update_obs()
 
@@ -944,6 +946,7 @@ class GraspEnv(WRSEnv):
             grasp_py = int(loc_idx / self.res)
             grasp_px = int(loc_idx % self.res)
             action_type = 'grasp'
+            self.stats['grasp_rotations'][rot_idx] += 1
         elif action < max_look_idx:
             idx = action - max_grasp_idx
             idx %= (self.res * self.res)
@@ -1081,8 +1084,14 @@ class GraspEnv(WRSEnv):
 
         if done:
             self.stats['episodes'] += 1
+            self.stats_history.append(self.stats)
+            summary = {}
 
-            print('seed:', self.seed, self.stats, time.time() - self.ep_start_time)
+            for k in self.stats.keys():
+                axis = 0 if isinstance(self.stats[k], list) else None
+                summary[k] = np.sum([s[k] for s in self.stats_history[-100:]], axis=axis)
+
+            print('seed:', self.seed, summary, time.time() - self.ep_start_time)
 
         hmap = self.update_obs()
 
