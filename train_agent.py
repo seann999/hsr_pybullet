@@ -128,6 +128,7 @@ def make_batch_env(config, n_envs=64):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--outdir', type=str, default='result/test00')
+    parser.add_argument('--load-agent', type=str, default=None)
     parser.add_argument('--depth-noise', action='store_true')
     parser.add_argument('--rot-noise', action='store_true')
     parser.add_argument('--test-run', action='store_true')
@@ -174,6 +175,9 @@ if __name__ == '__main__':
         phi=phi,
         max_grad_norm=100,
     )
+
+    if args.load_agent is not None:
+        agent.load(args.load_agent)
 
     logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='')
 

@@ -380,7 +380,6 @@ class HSREnv:
             self.move_arm(pose)
         else:
             del pose['head_tilt_joint']
-            print('EG')
             self.move_arm(pose, skip=['head_pan_joint', 'head_tilt_joint'])
 
     def sim_steps(self, steps=240 * 10, finger_steps=240, stop_at_stop=True, stop_at_contact=False, min_steps=10):
@@ -1160,7 +1159,7 @@ class GraspEnv(WRSEnv):
 
             print('seed:', self.seed, summary, time.time() - self.ep_start_time)
 
-        if self.random_hand and action_type != 'look' and np.random.random() < 0.5:
+        if self.random_hand and np.random.random() < 0.5:
             self.move_arm({
                 'arm_lift_joint': np.random.uniform(0.2, 0.69),
                 'arm_flex_joint': -1.57 + np.random.uniform(-0.1, 0.1) * np.pi,
