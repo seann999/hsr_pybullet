@@ -55,9 +55,10 @@ class QFCN(nn.Module):
 
         rots = 16
 
-        self.grasp_model = FCN(rots, fast=True)
+        self.grasp_model = FCN(rots, fast=False)
         self.look_model = FCN(1, fast=True)
         self.debug = debug
+        self.last_output = None
 
         if pretrain:
             self.grasp_model.load_state_dict(torch.load(pretrain))
@@ -77,6 +78,7 @@ class QFCN(nn.Module):
 
         if self.debug:
             show_viz(x, out, look_out)
+        self.last_output = [out.detach().cpu().numpy(), look_out.detach().cpu().numpy()]
 
         out = torch.cat([out, look_out], 1)
 
@@ -88,9 +90,6 @@ class QFCN(nn.Module):
         place = (grasping > 0).unsqueeze(1)
         out = torch.where(place, place_out, out)
 
-        #for line in traceback.format_stack():
-        #    print(line.strip())
-        #print('done.')
         return pfrl.action_value.DiscreteActionValue(out)
 
 
@@ -112,7 +111,7 @@ def phi(x):
 
 
 def make_env(idx, config):
-    env = GraspEnv(connect=p.DIRECT, config=config, check_object_collision=False)
+    env = GraspEnv(connect=p.DIRECT, config=config, check_object_collision=False, random_hand=True)
     env.set_seed(idx)
     return env
 

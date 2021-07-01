@@ -556,8 +556,9 @@ class HSREnv:
             if self.break_criteria():
                 return True
 
-            for k in np.linspace(-0.3, 0, 10):
-                self.move_ee(pos + k * rvec, rot, stop_at_contact=stop_at_contact, min_steps=0)
+            #for k in np.linspace(-0.3, 0, 10):
+            #    self.move_ee(pos + k * rvec, rot, stop_at_contact=stop_at_contact, min_steps=0)
+            self.move_ee(pos + 0 * rvec, rot, stop_at_contact=stop_at_contact, min_steps=0)
 
             if self.break_criteria():
                 return True
@@ -567,8 +568,9 @@ class HSREnv:
             # print('done')
             # input('ok?')
 
-            for k in np.linspace(0, -0.3, 10):
-                self.move_ee(pos + k * rvec, rot, stop_at_contact=stop_at_contact, min_steps=0)
+            # for k in np.linspace(0, -0.3, 10):
+            #    self.move_ee(pos + k * rvec, rot, stop_at_contact=stop_at_contact, min_steps=0)
+            self.move_ee(pos - 0.3 * rvec, rot, stop_at_contact=stop_at_contact, min_steps=0)
 
             tmp = self.furniture_collision
             self.break_collision = False
@@ -806,12 +808,12 @@ class WRSEnv(HSREnv):
 
 
 class GraspEnv(WRSEnv):
-    def __init__(self, config=DEFAULT_CONFIG, break_collision=True, check_object_collision=True, **kwargs):
+    def __init__(self, config=DEFAULT_CONFIG, break_collision=True, check_object_collision=True, random_hand=False, **kwargs):
         super(GraspEnv, self).__init__(**kwargs)
         self.check_object_collision = check_object_collision
         self.break_collision_default = break_collision
         self.break_collision = self.break_collision_default
-        self.random_hand = False
+        self.random_hand = random_hand
 
         self.stats = {
             'object_collisions': 0,

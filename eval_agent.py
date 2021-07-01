@@ -13,6 +13,49 @@ import cv2
 import numpy as np
 
 from train_agent import QFCN, phi
+import matplotlib as mpl
+mpl.use('tkagg')
+import matplotlib.pyplot as plt
+
+
+def visualize_grasps(env, q_func):
+    plt.clf()
+
+    grasp_map = q_func.last_output[0][0]
+    segmap = env.segmap
+    pts = []
+
+    for obj in env.obj_ids:
+        mask = segmap[:, :, 0] == obj
+
+        if mask.sum() == 0:
+            continue
+
+        gmap = grasp_map.copy()
+        gmap[:, ~mask] = -100
+
+        print(gmap.max())
+
+        zs, ys, xs = np.where(gmap == gmap.max())
+        px = np.stack([zs, ys, xs], axis=1)[0]
+        pts.append(px)
+        print(px)
+
+    plt.imshow(env.cmap)
+    pts = np.array(pts)
+    print(pts.shape)
+    if len(pts) > 0:
+        plt.plot(pts[:, 2], pts[:, 1], 'r*')
+
+        for rot, y, x in pts:
+            angle = rot * 2 * np.pi / 16.0 + np.pi*0.5
+            print(angle, x, y, np.cos(angle))
+            x1 = [x - np.cos(angle) * 10, x + np.cos(angle) * 10]
+            x2 = [y - np.sin(angle) * 10, y + np.sin(angle) * 10]
+            print(x1, x2)
+            plt.plot(x1, x2)
+
+    plt.savefig('grasps.png')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -29,7 +72,8 @@ if __name__ == '__main__':
 
     config = {'depth_noise': True, 'rot_noise': True, 'action_grasp': True,
               'action_look': True, 'spawn_mode': 'circle'}
-    env = GraspEnv(config=config, n_objects=args.n_objects, connect=p.GUI if args.gui else p.DIRECT, ycb=not args.shapenet, check_object_collision=False)
+    env = GraspEnv(config=config, n_objects=args.n_objects, connect=p.GUI if args.gui else p.DIRECT,
+                   ycb=not args.shapenet, check_object_collision=False, random_hand=True)
 
     class MaxAgent:
         def __init__(self):
@@ -107,9 +151,12 @@ if __name__ == '__main__':
                 else:
                     action = agent.act(obs)
 
+                visualize_grasps(env, q_func)
+
                 print('acting')
                 obs, reward, done, _ = env.step(action)
                 print('acted')
+
                 R += reward
                 t += 1
                 reset = t == max_episode_len
