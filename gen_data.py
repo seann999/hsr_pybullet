@@ -205,7 +205,7 @@ def generate(seed, indices, args):
         t = time.time()
 
         while True:
-            obs = env.reset()
+            obs = env.reset(full_random_pose=True)
 
             result_data = {
                 'robot_id': env.robot.id,
@@ -260,6 +260,15 @@ def generate(seed, indices, args):
         cv2.imwrite(os.path.join(d, 'hmap.png'), np.uint16(env.hmap * 1000))
         # cv2.imwrite(os.path.join(d, 'maskmap.png'), np.uint8(maskmap) * 255)
         cv2.imwrite(os.path.join(d, 'segmap.png'), segmap[:, :, 0])
+
+        hmap = env.update_obs(hand=True)
+        cv2.imwrite(os.path.join(d, 'hand_rgb.png'), env.rgb[:, :, ::-1])
+        cv2.imwrite(os.path.join(d, 'hand_depth.png'), np.uint16(env.depth * 1000))
+        cv2.imwrite(os.path.join(d, 'hand_noisy_depth.png'), np.uint16(env.noisy_depth * 1000))
+        cv2.imwrite(os.path.join(d, 'hand_seg.png'), env.seg)
+        cv2.imwrite(os.path.join(d, 'hand_cmap.png'), env.cmap[:, :, ::-1])
+        cv2.imwrite(os.path.join(d, 'hand_hmap.png'), np.uint16(env.hmap * 1000))
+        cv2.imwrite(os.path.join(d, 'hand_segmap.png'), segmap[:, :, 0])
 
         json.dump(result_data, open(os.path.join(d, 'ids.json'), 'w'))
 

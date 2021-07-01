@@ -353,13 +353,25 @@ class HSREnv:
                 client.setJointMotorControl2(robot.id, joint_index, p.POSITION_CONTROL,
                                         targetPosition=joint_angle)
 
-    def reset_pose(self):
+    def reset_pose(self, full_random_pose=False):
         neutral = [0 for _ in self.robot.get_states()['joint_position']]
         neutral[0] = np.random.uniform(-2, -1)# q[0]
         neutral[1] = np.random.uniform(-1.5, 1.5)# q[1]
         # neutral[2] = q[2]
-        for k, v in POSE_HOLDING.items():
-            neutral[self.joint2idx[k]] = v
+
+        if full_random_pose:
+            neutral[2] = np.random.uniform(-np.pi, np.pi)
+            neutral[3] = np.random.uniform(0, 0.345)
+            neutral[4] = np.random.uniform(-0.5 * np.pi, 0.5 * np.pi)
+            neutral[5] = np.random.uniform(-0.5 * np.pi, 0)
+            neutral[6] = np.random.uniform(0, 0.69)
+            neutral[7] = np.random.uniform(-0.75 * np.pi, 0)
+            neutral[8] = np.random.uniform(-2.09, 3.84)
+            neutral[9] = np.random.uniform(-1.92, 1.22)
+            neutral[10] = np.random.uniform(-1.92, 3.67)
+        else:
+            for k, v in POSE_HOLDING.items():
+                neutral[self.joint2idx[k]] = v
 
         self.reset_joints(neutral, True)
         self.set_joint_position(neutral, True)
@@ -720,7 +732,7 @@ class WRSEnv(HSREnv):
 
         return ids
 
-    def reset(self):
+    def reset(self, full_random_pose=False):
         super().reset()
         self.furn_ids = self.generate_room(full_range=self.full_range)
 
@@ -728,13 +740,14 @@ class WRSEnv(HSREnv):
             self.c_gui.removeBody(obj)
         #     self.c_gui.resetBasePositionAndOrientation(id, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
 
-        self.reset_pose()
+        self.reset_pose(full_random_pose=full_random_pose)
 
-        self.move_joints({
-            'joint_rz': np.random.uniform(-np.pi, np.pi),
-            'head_tilt_joint': np.random.uniform(-1.57, 0),
-            # 'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
-        }, sim=False)
+        if not full_random_pose:
+            self.move_joints({
+                'joint_rz': np.random.uniform(-np.pi, np.pi),
+                'head_tilt_joint': np.random.uniform(-1.57, 0),
+                # 'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
+            }, sim=False)
 
         self.obj_ids = []
         self.placed_objects = []
@@ -875,13 +888,13 @@ class GraspEnv(WRSEnv):
 
         return fn
 
-    def reset(self):
+    def reset(self, full_random_pose=False):
         self.ep_start_time = time.time()
         self.ep_counter += 1
         self.target_loc = None
         self.break_collision = self.break_collision_default
 
-        super().reset()
+        super().reset(full_random_pose=full_random_pose)
         # self.reset_env()
         self.stats = {
             'grasp_rotations': [0] * 16,
