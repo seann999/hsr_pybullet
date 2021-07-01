@@ -153,8 +153,8 @@ if __name__ == '__main__':
 
     explorer = pfrl.explorers.LinearDecayEpsilonGreedy(
         1, 0.01, 16000, random_action_func=GraspEnv.random_action_sample_fn(config, False))
-    optimizer = torch.optim.Adam(q_func.parameters(), lr=1e-4)
-    #optimizer = torch.optim.SGD(q_func.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0001)
+    # optimizer = torch.optim.Adam(q_func.parameters(), lr=1e-4)
+    optimizer = torch.optim.SGD(q_func.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0001)
     replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10000, betasteps=160000)
     #replay_buffer = pfrl.replay_buffers.ReplayBuffer(10000, 1)
 
@@ -169,7 +169,7 @@ if __name__ == '__main__':
         replay_start_size=16 if args.test_run else 4000,
         update_interval=4,
         target_update_interval=1000,
-        minibatch_size=8 if args.test_run else 32,
+        minibatch_size=8 if args.test_run else 8,
         gpu=gpu,
         phi=phi,
         max_grad_norm=100,
