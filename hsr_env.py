@@ -170,6 +170,10 @@ class HSREnv:
         vs_id = self.c_gui.createVisualShape(p.GEOM_SPHERE, radius=0.03, rgbaColor=[1, 0, 0, 1])
         self.marker_id = self.c_gui.createMultiBody(basePosition=[0, 0, 0], baseCollisionShapeIndex=-1,
                                                baseVisualShapeIndex=vs_id)
+        vs_id = self.c_gui.createVisualShape(p.GEOM_SPHERE, radius=0.03, rgbaColor=[0, 0, 1, 1])
+        self.marker_id2 = self.c_gui.createMultiBody(basePosition=[0, 0, 0], baseCollisionShapeIndex=-1,
+                                                    baseVisualShapeIndex=vs_id)
+        self.markers = [self.marker_id, self.marker_id2]
 
     def get_robot_info(self, robot):
         joints = robot.get_joint_infos()
@@ -196,8 +200,11 @@ class HSREnv:
 
     def get_heightmap(self, only_render=False, bounds=np.array([[0, 3], [-1.5, 1.5], [0, 0.3]]), px_size=0.01, hand=False,
                       **kwargs):
-        m_pos, m_orn = self.c_gui.getBasePositionAndOrientation(self.marker_id)
-        self.c_gui.resetBasePositionAndOrientation(self.marker_id, (0, 100, 0), (0, 0, 0, 1))
+        marker_poses = []
+
+        for m in self.markers:
+            marker_poses.append(self.c_gui.getBasePositionAndOrientation(m))
+            self.c_gui.resetBasePositionAndOrientation(m, (0, 100, 0), (0, 0, 0, 1))
 
         if hand:
             cam_state = self.robot.get_link_state_by_name('hand_camera_gazebo_frame_joint')
@@ -232,7 +239,8 @@ class HSREnv:
         else:
             out = eu.get_heightmaps(self.c_gui, camera_config, bounds=bounds, px_size=px_size, **kwargs)
 
-        self.c_gui.resetBasePositionAndOrientation(self.marker_id, m_pos, m_orn)
+        for m, m_pose in zip(self.markers, marker_poses):
+            self.c_gui.resetBasePositionAndOrientation(m, m_pose[0], m_pose[1])
 
         return out
 
@@ -356,19 +364,26 @@ class HSREnv:
         self.reset_joints(neutral, True)
         self.set_joint_position(neutral, True)
 
-    def move_arm(self, config, fill=True):
+    def move_arm(self, config, fill=True, skip=[]):
         if fill:
             for k, v in self.joint2idx.items():
-                if 3 <= v <= 10 and k not in config:
+                if 3 <= v <= 10 and k not in config and k not in skip:
                     config[k] = 0
 
         self.set_joint_position(config, True)
         self.sim_steps()
 
-    def holding_pose(self):
-        self.move_arm(POSE_HOLDING)
+    def holding_pose(self, reset_head=True):
+        pose = POSE_HOLDING.copy()
 
-    def sim_steps(self, steps=240 * 10, finger_steps=240, stop_at_stop=True, stop_at_contact=False):
+        if reset_head:
+            self.move_arm(pose)
+        else:
+            del pose['head_tilt_joint']
+            print('EG')
+            self.move_arm(pose, skip=['head_pan_joint', 'head_tilt_joint'])
+
+    def sim_steps(self, steps=240 * 10, finger_steps=240, stop_at_stop=True, stop_at_contact=False, min_steps=10):
         prev = self.robot.get_states()['joint_position']
 
         for t in range(steps):
@@ -400,7 +415,7 @@ class HSREnv:
                     print('stopping at contact')
                     break
 
-            if stop_at_stop and t > 10 and np.all(np.logical_or(eq, timeout)):
+            if stop_at_stop and t >= min_steps and np.all(np.logical_or(eq, timeout)):
                 # print('breaking at', t, 'steps')
                 # print(eq, timeout)
                 break
@@ -431,11 +446,18 @@ class HSREnv:
 
         self.move_base_abs(new_x, new_y, angle)
 
-    def move_ee(self, pos, orn, open=True, t=10, stop_at_contact=False, constrain_joints=[2, 4, 5], damp_base=False):
+    def move_ee(self, pos, orn, open=True, t=10, stop_at_contact=False, constrain_joints=[2, 4, 5], damp_base=False,
+                min_steps=10):
+        pos = pos - R.from_quat(orn).as_matrix()[:3, 2] * 0.17
+
         orig_q = list(self.robot.get_states()['joint_position'])
 
         self.c_gui.changeVisualShape(self.marker_id, -1, rgbaColor=(1, 0, 0, 1))
         self.c_gui.resetBasePositionAndOrientation(self.marker_id, pos, orn)
+
+        rmat = R.from_quat(orn).as_matrix()
+        self.c_gui.resetBasePositionAndOrientation(self.marker_id2, pos + rmat[:3, 2] * 0.2, orn)
+
         self.reset_joints(orig_q, False)
 
         lowers, uppers, ranges = list(self.lowers), list(self.uppers), list(self.ranges)
@@ -505,11 +527,12 @@ class HSREnv:
         self.set_joint_position(q[:-4], True)
 
         steps = 240 * t
-        return self.sim_steps(steps, stop_at_contact=stop_at_contact)
+        return self.sim_steps(steps, stop_at_contact=stop_at_contact, min_steps=min_steps)
 
     def grasp_primitive(self, pos, angle=0, frame=None, stop_at_contact=False):
         euler = [np.pi, 0, angle]
-        # euler = [0.75 * np.pi, 0, angle]
+        # print('angle:', angle)
+        # euler = [np.pi, -0.5 * np.pi, 0]
         rot = p.getQuaternionFromEuler(euler)
         pos, rot = eu.transform(pos, rot, frame)
 
@@ -522,7 +545,7 @@ class HSREnv:
             }, fill=False)
 
             # print(R.from_euler('xyz', euler).as_matrix())
-            rvec = R.from_euler('xyz', euler).as_matrix()[:3, 2]
+            rvec = R.from_quat(rot).as_matrix()[:3, 2]
 
             self.move_ee(pos - 0.3 * rvec, rot)
 
@@ -533,7 +556,9 @@ class HSREnv:
             if self.break_criteria():
                 return True
 
-            self.move_ee(pos, rot, stop_at_contact=stop_at_contact)
+            for k in np.linspace(-0.3, 0, 10):
+                self.move_ee(pos + k * rvec, rot, stop_at_contact=stop_at_contact, min_steps=0)
+
             if self.break_criteria():
                 return True
             # print('close')
@@ -542,7 +567,8 @@ class HSREnv:
             # print('done')
             # input('ok?')
 
-            self.move_ee(pos + np.array([0, 0, 0.3]), rot)
+            for k in np.linspace(0, -0.3, 10):
+                self.move_ee(pos + k * rvec, rot, stop_at_contact=stop_at_contact, min_steps=0)
 
             tmp = self.furniture_collision
             self.break_collision = False
@@ -780,11 +806,12 @@ class WRSEnv(HSREnv):
 
 
 class GraspEnv(WRSEnv):
-    def __init__(self, n_objects=70, config=DEFAULT_CONFIG, setup_room=True, break_collision=True, check_object_collision=True, **kwargs):
+    def __init__(self, config=DEFAULT_CONFIG, break_collision=True, check_object_collision=True, **kwargs):
         super(GraspEnv, self).__init__(**kwargs)
         self.check_object_collision = check_object_collision
         self.break_collision_default = break_collision
         self.break_collision = self.break_collision_default
+        self.random_hand = False
 
         self.stats = {
             'object_collisions': 0,
@@ -1037,7 +1064,6 @@ class GraspEnv(WRSEnv):
             surface_height = 0
             self.hmap[self.hmap == 0] = surface_height - self.hmap_bounds[2, 0]
             z = self.hmap[grasp_x[0], grasp_x[1]] + self.hmap_bounds[2, 0]
-            z += 0.24 - 0.07
 
             if self.grasp_primitive([x, y, z], angle, frame=self.obs_config['base_frame'], stop_at_contact=False):
                 self.holding_pose()
@@ -1123,7 +1149,7 @@ class GraspEnv(WRSEnv):
 
             print('seed:', self.seed, self.stats, time.time() - self.ep_start_time)
 
-        if action_type != 'look' and np.random.random() < 0.5:
+        if self.random_hand and action_type != 'look' and np.random.random() < 0.5:
             self.move_arm({
                 'arm_lift_joint': np.random.uniform(0.2, 0.69),
                 'arm_flex_joint': -1.57 + np.random.uniform(-0.1, 0.1) * np.pi,
@@ -1139,7 +1165,7 @@ class GraspEnv(WRSEnv):
                 hmap = self.update_obs(True)
         else:
             if action_type != 'place':
-                self.holding_pose()
+                self.holding_pose(reset_head=False)
 
             hmap = self.update_obs(False)
 
