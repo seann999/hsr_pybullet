@@ -353,28 +353,39 @@ class HSREnv:
                 client.setJointMotorControl2(robot.id, joint_index, p.POSITION_CONTROL,
                                         targetPosition=joint_angle)
 
-    def reset_pose(self, full_random_pose=False):
-        neutral = [0 for _ in self.robot.get_states()['joint_position']]
-        neutral[0] = np.random.uniform(-2, -1)# q[0]
-        neutral[1] = np.random.uniform(-1.5, 1.5)# q[1]
-        # neutral[2] = q[2]
+    def reset_pose(self, full_random_pose=False, check_collisions=[]):
+        for _ in range(100):
+            neutral = [0 for _ in self.robot.get_states()['joint_position']]
+            neutral[0] = np.random.uniform(-3, 0)# q[0]
+            neutral[1] = np.random.uniform(-2, 2)# q[1]
+            # neutral[2] = q[2]
 
-        if full_random_pose:
-            neutral[2] = np.random.uniform(-np.pi, np.pi)
-            neutral[3] = np.random.uniform(0, 0.345)
-            neutral[4] = np.random.uniform(-0.5 * np.pi, 0.5 * np.pi)
-            neutral[5] = np.random.uniform(-0.5 * np.pi, 0)
-            neutral[6] = np.random.uniform(0, 0.69)
-            neutral[7] = np.random.uniform(-0.75 * np.pi, 0)
-            neutral[8] = np.random.uniform(-2.09, 3.84)
-            neutral[9] = np.random.uniform(-1.92, 1.22)
-            neutral[10] = np.random.uniform(-1.92, 3.67)
-        else:
-            for k, v in POSE_HOLDING.items():
-                neutral[self.joint2idx[k]] = v
+            if full_random_pose:
+                neutral[2] = np.random.uniform(-np.pi, np.pi)
+                neutral[3] = np.random.uniform(0, 0.345)
+                neutral[4] = np.random.uniform(-0.5 * np.pi, 0.5 * np.pi)
+                neutral[5] = np.random.uniform(-0.5 * np.pi, 0)
+                neutral[6] = np.random.uniform(0, 0.69)
+                neutral[7] = np.random.uniform(-0.75 * np.pi, 0)
+                neutral[8] = np.random.uniform(-2.09, 3.84)
+                neutral[9] = np.random.uniform(-1.92, 1.22)
+                neutral[10] = np.random.uniform(-1.92, 3.67)
+            else:
+                for k, v in POSE_HOLDING.items():
+                    neutral[self.joint2idx[k]] = v
 
-        self.reset_joints(neutral, True)
-        self.set_joint_position(neutral, True)
+            self.reset_joints(neutral, True)
+            self.set_joint_position(neutral, True)
+
+            valid = True
+
+            for id in check_collisions:
+                if len(self.c_gui.getClosestPoints(self.robot.id, id, 0)) > 0:
+                    valid = False
+                    break
+
+            if valid:
+                break
 
     def move_arm(self, config, fill=True, skip=[]):
         if fill:
@@ -616,7 +627,7 @@ class WRSEnv(HSREnv):
         self.placed_objects = []
 
         self.res = 224
-        self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 1]])
+        self.hmap_bounds = np.array([[0, 1], [-0.5, 0.5], [-0.05, 1]])
         assert (self.hmap_bounds[0, 1] - self.hmap_bounds[0, 0]) == (self.hmap_bounds[1, 1] - self.hmap_bounds[1, 0])
         self.px_size = (self.hmap_bounds[0, 1] - self.hmap_bounds[0, 0]) / self.res
         self.num_rots = 16
@@ -626,7 +637,20 @@ class WRSEnv(HSREnv):
         rot_noise = np.pi / 180 * 5
         ids = {}
 
-        x = self.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_frame/model.sdf')[0]
+        random_wall = True
+        if random_wall:
+            tmp_path = '/tmp/{}.sdf'.format(np.random.randint(1000000))
+            with open('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_frame/model.sdf', 'r') as f:
+                with open(tmp_path, 'w') as f_out:
+                    height = np.random.uniform(0.5, 1.0)
+                    thickness = np.random.uniform(0.01, 0.1)
+                    data = f.read().replace('0.6</size>', '{}</size>'.format(height))
+                    data = data.replace('0.3 ', '{} '.format(height / 2.0))
+                    data = data.replace('0.1 ', '{} '.format(thickness))
+                    f_out.write(data)
+            x = self.c_gui.loadSDF(tmp_path)[0]
+        else:
+            x = self.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_frame/model.sdf')[0]
         self.c_gui.resetBasePositionAndOrientation(x, (0, 0, 0), (0, 0, 0, 1))
         ids['walls'] = x
 
@@ -634,7 +658,7 @@ class WRSEnv(HSREnv):
         self.c_gui.resetBasePositionAndOrientation(x, (2.7, -1, 0), p.getQuaternionFromEuler([0, 0, -1.57]))
         ids['shelf'] = x
 
-        pos_noise = 0.05
+        pos_noise = 0.2
         x = self.c_gui.loadSDF('tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/wrc_bin_black/model.sdf')[0]
         self.c_gui.resetBasePositionAndOrientation(x, (-2.7 + np.random.uniform(-1, 1) * pos_noise, -1.7 + np.random.uniform(-1, 1) * pos_noise, 0),
                                                        p.getQuaternionFromEuler([0, 0, np.random.uniform(-1, 1) * rot_noise]))
@@ -655,7 +679,7 @@ class WRSEnv(HSREnv):
         drawer_path = 'tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/models/{}/model-1_4.sdf'.format('trofast' if random_knob else 'trafast_knob')
         pull_noise = 0.05
 
-        def spawn_drawer(pos):
+        def spawn_drawer(pos, knob=True):
             x = self.c_gui.loadSDF(drawer_path)[0]
             self.c_gui.resetBasePositionAndOrientation(x, pos, (0, 0, 0, 1))
             self.c_gui.changeVisualShape(x, -1, rgbaColor=(1, 0.5, 0, 1))
@@ -664,7 +688,11 @@ class WRSEnv(HSREnv):
                 np.random.uniform(-0.01, 0.01),
                 np.random.uniform(-0.03, 0.03),
             ])
-            knob_id = eu.spawn_knob(self.c_gui, np.array(pos) + np.array([0.205, 0, 0.04]) + random_offset)
+            if knob:
+                knob_id = eu.spawn_knob(self.c_gui, np.array(pos) + np.array([0.205, 0, 0.04]) + random_offset)
+            else:
+                knob_id = None
+
             return x, knob_id
 
         if full_range:
@@ -731,9 +759,19 @@ class WRSEnv(HSREnv):
         self.c_gui.changeVisualShape(x, -1, rgbaColor=(0.3, 0.3, 0.2, 1))
         ids['container_right'] = x
 
+        misc_drawers = True
+        if misc_drawers:
+            heights = [0.1 + 0.115, 0.36 + 0.115, 0.62 + 0.115]
+            for i in range(3):
+                if np.random.random() < 0.5:
+                    pull = np.random.uniform(-2.7 - pull_noise, -2.4 + pull_noise)
+                    pos = (pull, 1.33, heights[i])
+                    drawer_id, _ = spawn_drawer(pos, knob=False)
+                    ids['misc_drawer_{}'.format(i)] = drawer_id
+
         return ids
 
-    def reset(self, full_random_pose=False):
+    def reset(self, full_random_pose=False, **kwargs):
         super().reset()
         self.furn_ids = self.generate_room(full_range=self.full_range)
 
@@ -741,7 +779,7 @@ class WRSEnv(HSREnv):
             self.c_gui.removeBody(obj)
         #     self.c_gui.resetBasePositionAndOrientation(id, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
 
-        self.reset_pose(full_random_pose=full_random_pose)
+        self.reset_pose(full_random_pose=full_random_pose, check_collisions=self.furn_ids.values())
 
         if not full_random_pose:
             self.move_joints({
@@ -1201,7 +1239,7 @@ def to_maps(rgb, depth, seg, config, bounds, px_size, depth_noise=False, pos_noi
 
     if depth_noise:
         #if np.random.uniform() < 0.5:
-        depth = eu.distort(depth, noise=np.random.uniform(0, 1))
+        depth = eu.distort(depth, np.random.uniform(0, 10))
 
     if pos_noise:
         config['position'] = np.array(config['position']) + np.random.normal(0, 0.01, 3)
