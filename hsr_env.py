@@ -617,7 +617,8 @@ class WRSEnv(HSREnv):
 
         self.res = 224
         self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 1]])
-        self.px_size = 3.0 / self.res
+        assert (self.hmap_bounds[0, 1] - self.hmap_bounds[0, 0]) == (self.hmap_bounds[1, 1] - self.hmap_bounds[1, 0])
+        self.px_size = (self.hmap_bounds[0, 1] - self.hmap_bounds[0, 0]) / self.res
         self.num_rots = 16
 
     def generate_room(self, drawers_open=True, full_range=False):

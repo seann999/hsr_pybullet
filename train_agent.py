@@ -50,7 +50,7 @@ def show_viz(x, out, look_out):
 
 
 class QFCN(nn.Module):
-    def __init__(self, debug=False, pretrain=None):
+    def __init__(self, debug=False, pretrain=None, pick_only=False):
         super().__init__()
 
         rots = 16
@@ -59,6 +59,7 @@ class QFCN(nn.Module):
         self.look_model = FCN(1, fast=True)
         self.debug = debug
         self.last_output = None
+        self.pick_only = pick_only
 
         if pretrain:
             self.grasp_model.load_state_dict(torch.load(pretrain))
@@ -75,6 +76,9 @@ class QFCN(nn.Module):
         #else:
         out = self.grasp_model(x)
         look_out = self.look_model(x)
+
+        if self.pick_only:
+            look_out *= 0
 
         if self.debug:
             show_viz(x, out, look_out)
@@ -133,6 +137,7 @@ if __name__ == '__main__':
     parser.add_argument('--rot-noise', action='store_true')
     parser.add_argument('--test-run', action='store_true')
     parser.add_argument('--pretrain', type=str, default=None)
+    parser.add_argument('--pick-only', action='store_true')
     args = parser.parse_args()
 
     config = args2config(args)
@@ -148,14 +153,14 @@ if __name__ == '__main__':
     # eval_env = GraspEnv(connect=p.DIRECT, config=config)
     # eval_env = GraspEnv(check_visibility=True, connect=p.DIRECT)
     env = make_batch_env(config, 48)
-    q_func = QFCN(pretrain=args.pretrain)
+    q_func = QFCN(pretrain=args.pretrain, pick_only=args.pick_only)
 
-    gamma = 0.5
+    gamma = 0 if args.pick_only 0.5
 
     explorer = pfrl.explorers.LinearDecayEpsilonGreedy(
-        1, 0.01, 16000, random_action_func=GraspEnv.random_action_sample_fn(config, False))
+        0.5, 0.1, 16000, random_action_func=GraspEnv.random_action_sample_fn(config, False))
     # optimizer = torch.optim.Adam(q_func.parameters(), lr=1e-4)
-    optimizer = torch.optim.SGD(q_func.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0001)
+    optimizer = torch.optim.SGD(q_func.parameters(), lr=1e-4, momentum=0.9, weight_decay=2e-5)
     replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10000, betasteps=160000)
     #replay_buffer = pfrl.replay_buffers.ReplayBuffer(10000, 1)
 
@@ -169,7 +174,7 @@ if __name__ == '__main__':
         explorer,
         replay_start_size=16 if args.test_run else 4000,
         update_interval=4,
-        target_update_interval=1000,
+        target_update_interval=1 if args.pick_only else 1000,
         minibatch_size=8 if args.test_run else 8,
         gpu=gpu,
         phi=phi,
@@ -187,7 +192,7 @@ if __name__ == '__main__':
         steps=160000,
         log_interval=1000,
         eval_n_steps=None,
-        eval_n_episodes=10,
+        eval_n_episodes=100,
         max_episode_len=10,
         eval_interval=1000,
         outdir=args.outdir,
