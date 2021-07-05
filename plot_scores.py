@@ -19,12 +19,12 @@ def main():
     assert len(args.files) > 0
     assert len(args.labels) == len(args.files)
 
-    for fpath, label in zip(args.files, args.labels):
+    for i, (fpath, label) in enumerate(zip(args.files, args.labels)):
         if os.path.isdir(fpath):
             fpath = os.path.join(fpath, 'scores.txt')
         assert os.path.exists(fpath)
         scores = pd.read_csv(fpath, delimiter='\t')
-        plt.plot(scores['steps'], scores[label], label=label)
+        plt.plot(scores['elapsed'], scores[label], label=label)
 
     plt.xlabel('steps')
     plt.ylabel('score')

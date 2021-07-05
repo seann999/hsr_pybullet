@@ -156,12 +156,13 @@ if __name__ == '__main__':
     q_func = QFCN(pretrain=args.pretrain, pick_only=args.pick_only)
 
     gamma = 0 if args.pick_only 0.5
+    k = 1
 
     explorer = pfrl.explorers.LinearDecayEpsilonGreedy(
-        0.5, 0.1, 16000, random_action_func=GraspEnv.random_action_sample_fn(config, False))
+        0.5, 0.1, 4000 * k, random_action_func=GraspEnv.random_action_sample_fn(config, False))
     # optimizer = torch.optim.Adam(q_func.parameters(), lr=1e-4)
     optimizer = torch.optim.SGD(q_func.parameters(), lr=1e-4, momentum=0.9, weight_decay=2e-5)
-    replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10000, betasteps=160000)
+    replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10000, betasteps=40000 * k)
     #replay_buffer = pfrl.replay_buffers.ReplayBuffer(10000, 1)
 
     gpu = 0
@@ -172,9 +173,9 @@ if __name__ == '__main__':
         replay_buffer,
         gamma,
         explorer,
-        replay_start_size=16 if args.test_run else 4000,
-        update_interval=4,
-        target_update_interval=1 if args.pick_only else 1000,
+        replay_start_size=16 if args.test_run else 1000 * k,
+        update_interval=k,
+        target_update_interval=1 if args.pick_only else 250 * k,
         minibatch_size=8 if args.test_run else 8,
         gpu=gpu,
         phi=phi,
@@ -189,7 +190,7 @@ if __name__ == '__main__':
     pfrl.experiments.train_agent_batch_with_evaluation(
         agent,
         env=env,
-        steps=160000,
+        steps=40000 * k,
         log_interval=1000,
         eval_n_steps=None,
         eval_n_episodes=100,
