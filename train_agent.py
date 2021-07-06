@@ -155,8 +155,8 @@ if __name__ == '__main__':
     env = make_batch_env(config, 48)
     q_func = QFCN(pretrain=args.pretrain, pick_only=args.pick_only)
 
-    gamma = 0 if args.pick_only 0.5
     k = 1
+    gamma = 0 if args.pick_only else 0.5
 
     explorer = pfrl.explorers.LinearDecayEpsilonGreedy(
         0.5, 0.1, 4000 * k, random_action_func=GraspEnv.random_action_sample_fn(config, False))
