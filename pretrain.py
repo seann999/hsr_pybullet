@@ -12,38 +12,40 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split
 import matplotlib.pyplot as plt
 from fcn_model import FCN
-#from train_agent import phi
+# from train_agent import phi
 import albumentations as A
 
-
 CLASSES = {
-    'walls': 3,
-    'shelf': 4,
-    'bin_left': 5,
-    'bin_right': 6,
-    'stair_drawer': 7,
-    'drawer_bottom': 8,
-    'knob_bottom': 9,
-    'drawer_left': 10,
-    'knob_left': 11,
-    'drawer_top': 12,
-    'knob_top': 13,
-    'tall_table': 14,
-    'long_table': 15,
-    'long_table_placing': 16,
-    'tray_left': 17,
-    'tray_right': 18,
-    'container_left': 19,
-    'container_right': 20,
+    'walls': 4,
+    'shelf': 5,
+    'bin_left': 6,
+    'bin_right': 7,
+    'stair_drawer': 8,
+    'drawer_bottom': 9,
+    'knob_bottom': 10,
+    'drawer_left': 11,
+    'knob_left': 12,
+    'drawer_top': 13,
+    'knob_top': 14,
+    'tall_table': 15,
+    'long_table': 16,
+    'long_table_placing': 17,
+    'tray_left': 18,
+    'tray_right': 19,
+    'container_left': 20,
+    'container_right': 21,
+    'drawer_misc': 22,
 }
-
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
+
 colors = plt.get_cmap('tab20')
 newcolors = colors(np.arange(20))
 COLORS = np.concatenate([np.array([[0, 0, 0, 1.0]]), newcolors, np.array([[1, 1, 1, 1.0]])], 0)
-#newcmp = ListedColormap(newcolors)
+
+
+# newcmp = ListedColormap(newcolors)
 
 def visualize(out):
     x = np.zeros((out.shape[0], out.shape[1], 3), dtype=np.uint8)
@@ -55,6 +57,33 @@ def visualize(out):
     return x
 
 
+def gaussian2d(x, y, w, h):
+    from scipy.stats import multivariate_normal
+
+    # create 2 kernels
+    m1 = (x, y)
+    s1 = np.eye(2) * 8
+    k1 = multivariate_normal(mean=m1, cov=s1)
+
+    # create a grid of (x,y) coordinates at which to evaluate the kernels
+    xlim = (0, w)
+    ylim = (0, h)
+    xres = w
+    yres = h
+
+    x = np.linspace(xlim[0], xlim[1], xres)
+    y = np.linspace(ylim[0], ylim[1], yres)
+    xx, yy = np.meshgrid(x, y)
+
+    xxyy = np.stack([xx.ravel(), yy.ravel()]).T
+    zz = k1.pdf(xxyy)
+
+    # reshape and plot image
+    img = zz.reshape((yres, xres))
+
+    return img
+
+
 def analyze(root, files):
     crops = [[] for _ in range(16)]
     for f in files:
@@ -63,11 +92,11 @@ def analyze(root, files):
         if info['pick']['success']:
             try:
                 x, y = info['pick']['pick_px']
-                crop = hmap[y-20:y+20, x-20:x+20]
+                crop = hmap[y - 20:y + 20, x - 20:x + 20]
                 if crop.shape != (40, 40):
                     continue
                 crop = crop.astype(np.float32)
-                #crop -= crop.mean()
+                # crop -= crop.mean()
                 crops[info['pick']['pick_rot_idx']].append(crop)
             except Exception as e:
                 print(e)
@@ -100,7 +129,8 @@ def analyze2(root, files):
 
 
 class SegData:
-    def __init__(self, root, train, classify=False, placing=False, picking=False, hmap=False, balance=False):
+    def __init__(self, root, train, classify=False, placing=False, picking=False, hmap=False, balance=False,
+                 panoptic=True):
         self.root = root
         self.files = sorted(os.listdir(self.root))
         self.classify = classify
@@ -109,15 +139,18 @@ class SegData:
         self.balance = balance
         self.hmap = hmap
         self.train = train
+        self.panoptic = panoptic
 
         if picking:
             self.transform = A.Compose([
                 # A.Cutout(max_h_size=10, max_w_size=10),
-                A.ShiftScaleRotate(shift_limit=0.5, scale_limit=0, rotate_limit=0, border_mode=cv2.BORDER_CONSTANT, value=0),
+                A.ShiftScaleRotate(shift_limit=0.5, scale_limit=0, rotate_limit=0, border_mode=cv2.BORDER_CONSTANT,
+                                   value=0),
             ])
         else:
             self.transform = A.Compose([
-                A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0, rotate_limit=360 if placing else 30, border_mode=cv2.BORDER_CONSTANT, value=0),
+                A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0, rotate_limit=360 if placing else 30,
+                                   border_mode=cv2.BORDER_CONSTANT, value=0),
             ])
 
         success = []
@@ -139,8 +172,10 @@ class SegData:
             self.files = self.files[:80000]
             self.success = self.success[:80000]
         else:
-            self.files = self.files[80000:100000]
-            self.success = self.success[80000:100000]
+            # self.files = self.files[80000:100000]
+            # self.success = self.success[80000:100000]
+            self.files = self.files[:80000]
+            self.success = self.success[:80000]
 
     def __len__(self):
         return len(self.files)
@@ -154,13 +189,14 @@ class SegData:
 
         hmap = cv2.imread(os.path.join(self.root, self.files[idx], 'hmap.png' if self.hmap else 'noisy_depth.png'), -1)
 
-        #angle = np.random.randint(low=0, high=360)
-        #image_center = (112, 112)
-        #rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
+        # angle = np.random.randint(low=0, high=360)
+        # image_center = (112, 112)
+        # rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
         # hmap = cv2.warpAffine(hmap, rot_mat, (224, 224))
 
-        #gtmap = cv2.imread(os.path.join(self.root, self.files[idx], 'maskmap.png'))[:, :, 0] > 0
-        segmap = cv2.imread(os.path.join(self.root, self.files[idx], 'segmap.png' if self.hmap else 'seg.png'), -1)#.astype(np.float32)
+        # gtmap = cv2.imread(os.path.join(self.root, self.files[idx], 'maskmap.png'))[:, :, 0] > 0
+        segmap = cv2.imread(os.path.join(self.root, self.files[idx], 'segmap.png' if self.hmap else 'seg.png'),
+                            -1)  # .astype(np.float32)
         info = json.load(open(os.path.join(self.root, self.files[idx], 'ids.json'), 'r'))
         # furns = info['furn_ids']
         # gtmap = np.logical_or.reduce([segmap == furns[i] for i in [11, 12, 13, 14]])
@@ -170,14 +206,19 @@ class SegData:
 
             for id in info['obj_ids']:
                 if id in placed:
-                    gtmap[segmap == id] = 2
+                    gtmap[segmap == id] = 3
                 else:
-                    gtmap[segmap == id] = 1
+                    gtmap[segmap == id] = 2
 
-            gtmap[segmap == info['robot_id']] = 21
+            for k, v in info['furn_ids'].items():
+                if 'drawer' in k and 'misc' in k:
+                    gtmap[segmap == v] = CLASSES['drawer_misc']
+
+            gtmap[segmap == info['robot_id']] = 1
 
             for name, cls_idx in CLASSES.items():
-                gtmap[segmap == info['furn_ids'][name]] = cls_idx
+                if name in info['furn_ids']:
+                    gtmap[segmap == info['furn_ids'][name]] = cls_idx
         elif self.placing:
             gtmap = np.zeros(list(segmap.shape[:2]) + [3], dtype=np.float32)
             pdata = info['place']
@@ -203,18 +244,18 @@ class SegData:
             # M = cv2.getRotationMatrix2D(tuple(np.int32(np.array(gtmap.shape[:2]) / 2)), rot, 1)
             M = cv2.getRotationMatrix2D((112, 112), rot, 1)
             x, y = np.round(M.dot(np.array([x, y, 1]))[:2]).astype(np.int32)
-            w_xy, w_r = 2, 0 # window
+            w_xy, w_r = 2, 0  # window
 
             if x >= 0 and y >= 0 and x < 224 and y < 224:
                 y0, y1 = max(0, y - w_xy), min(y + w_xy, 224)
                 x0, x1 = max(0, x - w_xy), min(x + w_xy, 224)
-                
+
                 gtmap[y0:y1, x0:x1, r] = float(pdata['success'] and not pdata['furniture_collision'])
                 mask[y0:y1, x0:x1, r] = 1
 
             hmap = cv2.warpAffine(hmap, M, hmap.shape[:2], flags=cv2.INTER_NEAREST)
-            #gtmap = cv2.warpAffine(gtmap, M, gtmap.shape[:2], flags=cv2.INTER_NEAREST)
-            #mask = cv2.warpAffine(mask, M, mask.shape[:2], flags=cv2.INTER_NEAREST)
+            # gtmap = cv2.warpAffine(gtmap, M, gtmap.shape[:2], flags=cv2.INTER_NEAREST)
+            # mask = cv2.warpAffine(mask, M, mask.shape[:2], flags=cv2.INTER_NEAREST)
         else:
             placed = info.get('placed_obj_ids', [])
             objs = [i for i in info['obj_ids'] if i not in placed and (segmap == i).sum() > 0]
@@ -232,14 +273,48 @@ class SegData:
                     gtmap = np.logical_or.reduce([segmap == id for id in objs])
                 else:
                     gtmap = np.zeros_like(segmap)
-            
+
             gtmap = gtmap.astype(np.float32)
             # gtmap = cv2.warpAffine(gtmap, rot_mat, (224, 224))
 
-        if self.train and self.classify:
-            re = self.transform(image=hmap, mask=gtmap)
-            hmap, gtmap = re['image'], re['mask']
-            gtmap = gtmap.astype(np.int64)
+        if self.classify:
+            if self.panoptic:
+                instance_mask = np.logical_or.reduce([gtmap == i for i in [2, 3]])
+                centers = np.zeros(instance_mask.shape, dtype=np.float32)[None]
+                offsets = np.zeros(list(instance_mask.shape) + [2], dtype=np.float32)
+                H, W = gtmap.shape[:2]
+
+                for k in np.unique(segmap[instance_mask]):
+                    obj_mask = segmap == k
+                    ys, xs = np.where(obj_mask)
+                    cx, cy = xs.mean(), ys.mean()
+                    centers = np.maximum(centers, gaussian2d(cx, cy, W, H)[None])
+
+                    x = np.linspace(0, W, W)
+                    y = np.linspace(0, H, H)
+                    xx, yy = np.meshgrid(x, y)
+                    off_x = cx - xx
+                    off_y = cy - yy
+                    off = np.stack([off_x, off_y], axis=2)
+
+                    offsets[obj_mask] = off[obj_mask]
+
+                offsets /= W
+                instance_mask = np.float32(instance_mask[None])
+
+                if self.train:
+                    re = self.transform(image=hmap, masks=[gtmap, instance_mask, centers, offsets])
+                    hmap, gtmap = re['image'], re['masks'][0]
+                    instance_mask, centers, offsets = re['masks'][1], re['masks'][2], re['masks'][3]
+                    gtmap = gtmap.astype(np.int64)
+
+                hmap = (hmap / 1000.0).astype(np.float32)[None]
+
+                return hmap, gtmap, instance_mask, centers, offsets
+            elif self.train:
+                re = self.transform(image=hmap, mask=gtmap)
+                hmap, gtmap = re['image'], re['mask']
+                gtmap = gtmap.astype(np.int64)
         elif self.train and self.placing:
             re = self.transform(image=hmap, masks=[gtmap, mask])
             hmap, gtmap, mask = re['image'], re['masks'][0], re['masks'][1]
@@ -263,12 +338,12 @@ class SegData:
 
 def create_fig(y_hat, y, classification=False, placing=False, picking=False):
     fig, ax = plt.subplots(3, 8)
-    #y_hat = F.sigmoid(y_hat).detach().cpu().numpy()
-    #y_hat = y_hat.detach()
+    # y_hat = F.sigmoid(y_hat).detach().cpu().numpy()
+    # y_hat = y_hat.detach()
 
     if placing:
         y_hat = F.sigmoid(y_hat).permute(0, 2, 3, 1)
-        #y_hat = torch.clip(y_hat.permute(0, 2, 3, 1), 0, 1)
+        # y_hat = torch.clip(y_hat.permute(0, 2, 3, 1), 0, 1)
         y = y.permute(0, 2, 3, 1)
 
     y_hat = y_hat.detach().cpu().numpy()
@@ -295,7 +370,7 @@ def create_fig(y_hat, y, classification=False, placing=False, picking=False):
             y_hat_prob = np.clip(y_hat[i].max(0), 0, 1)
             y_idx = y[i].argmax(0)
             y_prob = np.clip(y[i].max(0), 0, 1)
-            
+
             y_rgb = np.zeros(list(y_hat[i].shape[1:]) + [3], dtype=np.float32)
             y_hat_rgb = np.zeros(list(y_hat[i].shape[1:]) + [3], dtype=np.float32)
 
@@ -313,13 +388,31 @@ def create_fig(y_hat, y, classification=False, placing=False, picking=False):
         else:
             ax[1, i].imshow(y_hat[i].max(0), vmin=0, vmax=1)
             ax[2, i].imshow(y[i], vmin=0, vmax=1)
-        #ax[3, i].imshow(g[i, 0], vmin=0, vmax=1)
-        #ax[4, i].imshow(p[i, 0], vmin=0, vmax=1)
+        # ax[3, i].imshow(g[i, 0], vmin=0, vmax=1)
+        # ax[4, i].imshow(p[i, 0], vmin=0, vmax=1)
 
     fig.set_size_inches(24, 15)
     fig.tight_layout()
 
     return fig
+
+
+def panoptic_loss(y, cls, inst_mask, centers, offsets):
+    #  y = Nx(C+1+2)xHxW
+    #  cls = NxCxHxW
+    #  mask = Nx1xHxW
+    #  centers = Nx1xHxW
+    #  offsets = Nx2xHxW
+
+    cls_pred = y[:, :cls.shape[1]]
+    center_pred = y[:, cls.shape[1]:cls.shape[1]+1]
+    offset_pred = y[:, cls.shape[1]+1:cls.shape[1]+3]
+
+    cls_loss = F.cross_entropy(cls_pred, cls.cuda(), reduction='none').sum(2).sum(1).mean()
+    center_loss = F.binary_cross_entropy_with_logits(center_pred, centers, reduction='none').sum(2).sum(1).mean()
+    offset_loss = F.l1_loss(offset_pred, offsets, reduction='none').sum(2).sum(1).mean()
+
+    return cls_loss + center_loss + offset_loss
 
 
 if __name__ == '__main__':
@@ -330,8 +423,10 @@ if __name__ == '__main__':
     parser.add_argument('--picking', action='store_true')
     parser.add_argument('--placing', action='store_true')
     parser.add_argument('--no-hmap', action='store_true')
+    parser.add_argument('--panoptic', action='store_true')
     parser.add_argument('--fast', action='store_true')
-    args = parser.parse_args() 
+    args = parser.parse_args()
+
 
     def phi(x):
         if args.no_hmap:
@@ -339,21 +434,25 @@ if __name__ == '__main__':
 
         return (x - 0.2) / 0.2
 
-    if args.classify:
-        output_channels = 22
+    if args.panoptic:
+        output_channels = 23 + 1 + 2
+    elif args.classify:
+        output_channels = 23
     elif args.placing:
         output_channels = 3
     elif args.picking:
         output_channels = 16
     else:
         output_channels = 16
-   
-    bs = 8 if args.picking else 32 
+
+    bs = 8 if args.picking else 32
     if not args.fast:
         bs = 8
     if args.no_hmap:
-        bs = 16
-    #elif args.picking:
+        bs = 1
+
+
+    # elif args.picking:
     #    bs = 128
 
     def init_fn(worker_id):
@@ -364,9 +463,16 @@ if __name__ == '__main__':
         # More than 128 bits (4 32-bit words) would be overkill.
         np.random.seed(ss.generate_state(4))
 
+
     model = FCN(num_rotations=output_channels, fast=args.fast, dilation=args.classify)
-    train_loader = DataLoader(SegData(args.data, True, classify=args.classify, placing=args.placing, picking=args.picking, hmap=not args.no_hmap, balance=args.picking), batch_size=bs, num_workers=8, shuffle=True, pin_memory=True, drop_last=True, worker_init_fn=init_fn)
-    val_loader = DataLoader(SegData(args.data, False, classify=args.classify, placing=args.placing, picking=args.picking, hmap=not args.no_hmap), batch_size=8, num_workers=8, shuffle=True, pin_memory=True, drop_last=True, worker_init_fn=init_fn)
+    train_loader = DataLoader(
+        SegData(args.data, True, classify=args.classify, placing=args.placing, picking=args.picking,
+                hmap=not args.no_hmap, balance=args.picking, panoptic=args.panoptic), batch_size=bs, num_workers=8, shuffle=True,
+        pin_memory=True, drop_last=True, worker_init_fn=init_fn)
+    val_loader = DataLoader(
+        SegData(args.data, False, classify=args.classify, placing=args.placing, picking=args.picking,
+                hmap=not args.no_hmap, panoptic=args.panoptic), batch_size=8, num_workers=8, shuffle=True, pin_memory=True, drop_last=True,
+        worker_init_fn=init_fn)
 
     model.cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
@@ -379,22 +485,25 @@ if __name__ == '__main__':
     except:
         pass
 
+
     def calc_loss(y_hat, y, m):
         if args.classify:
             loss = F.cross_entropy(y_hat, y.cuda(), reduction='none').sum(2).sum(1).mean()
         elif args.placing:
             m = m.cuda().unsqueeze(1)
-            loss = (F.binary_cross_entropy_with_logits(y_hat, y.cuda(), reduction='none') * m).sum(3).sum(2).sum(1).mean()
-            #loss = ((y_hat - y.cuda()).pow(2) * m).sum(3).sum(2).sum(1).mean()
+            loss = (F.binary_cross_entropy_with_logits(y_hat, y.cuda(), reduction='none') * m).sum(3).sum(2).sum(
+                1).mean()
+            # loss = ((y_hat - y.cuda()).pow(2) * m).sum(3).sum(2).sum(1).mean()
         elif args.picking:
             y = y.cuda()
-            w = 1#torch.where(y == 1, 1, 0.06)
+            w = 1  # torch.where(y == 1, 1, 0.06)
             loss = ((y_hat - y).pow(2) * m.cuda() * w).sum(3).sum(2).sum(1).mean()
         else:
             y = y.cuda().unsqueeze(1)
             loss = (y_hat - y).pow(2).sum(3).sum(2).sum(1).mean()
 
         return loss
+
 
     m = None
 
@@ -406,12 +515,16 @@ if __name__ == '__main__':
         for i, d in enumerate(train_loader):
             if args.placing or args.picking:
                 x, y, m = d
+                y_hat = model.forward(phi(x).cuda())
+                loss = calc_loss(y_hat, y, m)
+            elif args.panoptic:
+                x, seg_cls, inst_mask, centers, offsets = d
+                y_hat = model.forward(phi(x).cuda())
+                loss = panoptic_loss(y_hat, seg_cls, inst_mask, centers, offsets)
             else:
                 x, y = d
-
-            y_hat = model.forward(phi(x).cuda())
-            #loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
-            loss = calc_loss(y_hat, y, m)
+                y_hat = model.forward(phi(x).cuda())
+                loss = calc_loss(y_hat, y, m)
 
             optimizer.zero_grad()
             loss.backward()
@@ -420,8 +533,8 @@ if __name__ == '__main__':
             loss = loss.cpu().detach().numpy()
             total_loss += loss
 
-            #fig = create_fig(y_hat, y, classification=args.classify)
-            #fig.savefig(os.path.join(root, 'train_{:05d}.png'.format(ep)))
+            # fig = create_fig(y_hat, y, classification=args.classify)
+            # fig.savefig(os.path.join(root, 'train_{:05d}.png'.format(ep)))
 
             print(i, len(train_loader), loss)
 
@@ -446,7 +559,7 @@ if __name__ == '__main__':
 
             with torch.no_grad():
                 y_hat = model.forward(phi(x).cuda())
-                #loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
+                # loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
                 loss = calc_loss(y_hat, y, m)
 
             loss = loss.cpu().detach().numpy()
