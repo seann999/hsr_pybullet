@@ -176,11 +176,11 @@ class SegData:
         # exit()
 
         if train:
-            self.files = self.files[:80]#000]
-            self.success = self.success[:80]#000]
+            self.files = self.files[:80000]
+            self.success = self.success[:80000]
         else:
-            self.files = self.files[80:100]#[80000:100000]
-            self.success = self.success[80:100]#[80000:100000]
+            self.files = self.files[80000:100000]
+            self.success = self.success[80000:100000]
 
     def __len__(self):
         return len(self.files)
@@ -358,6 +358,7 @@ def offset2rgb(offset, mask):
 
 
 def create_pan_fig(x, y_hat, mask, cls, centers, offsets):
+    N = min(len(x), 8)
     y_hat = y_hat.detach().cpu().numpy()
     cls = cls.detach().cpu().numpy()
     mask = mask.detach().cpu().numpy()
@@ -368,9 +369,9 @@ def create_pan_fig(x, y_hat, mask, cls, centers, offsets):
     center_pred = y_hat[:, N_CLASSES:N_CLASSES+1]
     offset_pred = y_hat[:, N_CLASSES+1:N_CLASSES+3]
 
-    fig, ax = plt.subplots(8, 8)
+    fig, ax = plt.subplots(8, N)
 
-    for i in range(8):
+    for i in range(N):
         ax[0, i].imshow(x[i, 0])
 
         ax[1, i].imshow(visualize(cls_pred[i].argmax(axis=0)), interpolation='nearest')
@@ -464,7 +465,7 @@ def panoptic_loss(y, cls, inst_mask, centers, offsets):
 
     print(cls_loss.item(), center_loss, offset_loss)
 
-    return cls_loss + center_loss + offset_loss
+    return cls_loss, center_loss, offset_loss
 
 
 if __name__ == '__main__':
@@ -530,6 +531,7 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
     train_losses, val_losses = [], []
+    loss_stats = []
     root = args.outdir
 
     try:
@@ -554,10 +556,11 @@ if __name__ == '__main__':
             y = y.cuda().unsqueeze(1)
             loss = (y_hat - y).pow(2).sum(3).sum(2).sum(1).mean()
 
-        return loss
+        return [loss]
 
 
     m = None
+    steps = 0
 
     for ep in range(100001):
         # np.random.seed()
@@ -579,11 +582,32 @@ if __name__ == '__main__':
                 loss = calc_loss(y_hat, y, m)
 
             optimizer.zero_grad()
-            loss.backward()
+            sum(loss).backward()
             optimizer.step()
 
-            loss = loss.cpu().detach().numpy()
+            if steps % 100 == 0:
+                loss_stats.append([j.item() for j in loss])
+                plt.clf()
+                plt.figure(figsize=(4, 3))
+                plt.yscale('log')
+                for term in range(len(loss_stats[0])):
+                    plt.plot([loss_stats[i][term] for i in range(len(loss_stats))])
+                plt.legend()
+                plt.tight_layout()
+                plt.savefig(os.path.join(root, 'losses.png'))
+
+                if args.panoptic:
+                    fig = create_pan_fig(x, y_hat, inst_mask, seg_cls, centers, offsets)
+                else:
+                    fig = create_fig(x, y_hat, y, classification=args.classify, placing=args.placing,
+                                     picking=args.picking)
+
+                fig.savefig(os.path.join(root, 'train_{:07d}.png'.format(steps)))
+                fig.clf()
+
+            loss = sum(loss).cpu().detach().numpy()
             total_loss += loss
+            steps += 1
 
             # fig = create_fig(y_hat, y, classification=args.classify)
             # fig.savefig(os.path.join(root, 'train_{:05d}.png'.format(ep)))
@@ -593,14 +617,6 @@ if __name__ == '__main__':
         loss_avg = total_loss / len(train_loader)
         print(loss_avg)
         train_losses.append(loss_avg)
-
-        if ep % 10 == 0:
-            if args.panoptic:
-                fig = create_pan_fig(x, y_hat, inst_mask, seg_cls, centers, offsets)
-            else:
-                fig = create_fig(x, y_hat, y, classification=args.classify, placing=args.placing, picking=args.picking)
-            fig.savefig(os.path.join(root, 'train_{:05d}.png'.format(ep)))
-            fig.clf()
 
         del y_hat, loss
         torch.cuda.empty_cache()
@@ -623,7 +639,7 @@ if __name__ == '__main__':
                     y_hat = model.forward(phi(x).cuda())
                     loss = calc_loss(y_hat, y, m) 
 
-            loss = loss.cpu().detach().numpy()
+            loss = sum(loss).cpu().detach().numpy()
             total_loss += loss
 
             print(ep, i, len(val_loader), loss)
@@ -637,7 +653,7 @@ if __name__ == '__main__':
                 fig = create_pan_fig(x, y_hat, inst_mask, seg_cls, centers, offsets)
             else:
                 fig = create_fig(x, y_hat, y, classification=args.classify, placing=args.placing, picking=args.picking)
-            fig.savefig(os.path.join(root, 'val_{:05d}.png'.format(ep)))
+            fig.savefig(os.path.join(root, 'val_{:07d}.png'.format(steps)))
             fig.clf()
 
         plt.clf()
