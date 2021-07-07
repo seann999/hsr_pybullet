@@ -36,12 +36,13 @@ CLASSES = {
     'container_right': 21,
     'drawer_misc': 22,
 }
+N_CLASSES = 23
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 
 colors = plt.get_cmap('tab20')
-newcolors = colors(np.arange(20))
+newcolors = colors(np.arange(N_CLASSES - 1))
 COLORS = np.concatenate([np.array([[0, 0, 0, 1.0]]), newcolors, np.array([[1, 1, 1, 1.0]])], 0)
 
 
@@ -77,6 +78,7 @@ def gaussian2d(x, y, w, h):
 
     xxyy = np.stack([xx.ravel(), yy.ravel()]).T
     zz = k1.pdf(xxyy)
+    zz /= zz.max()
 
     # reshape and plot image
     img = zz.reshape((yres, xres))
@@ -147,6 +149,11 @@ class SegData:
                 A.ShiftScaleRotate(shift_limit=0.5, scale_limit=0, rotate_limit=0, border_mode=cv2.BORDER_CONSTANT,
                                    value=0),
             ])
+        elif panoptic:
+            self.transform = A.Compose([
+                A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0, rotate_limit=360 if placing else 30,
+                                   border_mode=cv2.BORDER_CONSTANT, value=0),
+                ], additional_targets={'gtmap': 'mask', 'centers': 'mask', 'offsets': 'mask', 'inst_mask': 'mask'})
         else:
             self.transform = A.Compose([
                 A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0, rotate_limit=360 if placing else 30,
@@ -169,13 +176,11 @@ class SegData:
         # exit()
 
         if train:
-            self.files = self.files[:80000]
-            self.success = self.success[:80000]
+            self.files = self.files[:80]#000]
+            self.success = self.success[:80]#000]
         else:
-            # self.files = self.files[80000:100000]
-            # self.success = self.success[80000:100000]
-            self.files = self.files[:80000]
-            self.success = self.success[:80000]
+            self.files = self.files[80:100]#[80000:100000]
+            self.success = self.success[80:100]#[80000:100000]
 
     def __len__(self):
         return len(self.files)
@@ -281,7 +286,7 @@ class SegData:
             if self.panoptic:
                 instance_mask = np.logical_or.reduce([gtmap == i for i in [2, 3]])
                 centers = np.zeros(instance_mask.shape, dtype=np.float32)[None]
-                offsets = np.zeros(list(instance_mask.shape) + [2], dtype=np.float32)
+                offsets = np.zeros([2] + list(instance_mask.shape), dtype=np.float32)
                 H, W = gtmap.shape[:2]
 
                 for k in np.unique(segmap[instance_mask]):
@@ -295,18 +300,21 @@ class SegData:
                     xx, yy = np.meshgrid(x, y)
                     off_x = cx - xx
                     off_y = cy - yy
-                    off = np.stack([off_x, off_y], axis=2)
+                    off = np.stack([off_x, off_y], axis=0)
 
-                    offsets[obj_mask] = off[obj_mask]
+                    offsets[:, obj_mask] = off[:, obj_mask]
 
                 offsets /= W
+                centers = np.float32(centers)
                 instance_mask = np.float32(instance_mask[None])
 
                 if self.train:
-                    re = self.transform(image=hmap, masks=[gtmap, instance_mask, centers, offsets])
-                    hmap, gtmap = re['image'], re['masks'][0]
-                    instance_mask, centers, offsets = re['masks'][1], re['masks'][2], re['masks'][3]
-                    gtmap = gtmap.astype(np.int64)
+                    #re = self.transform(image=hmap, masks=[gtmap, instance_mask, centers, offsets])
+                    #re = self.transform(image=hmap, gtmap=gtmap, inst_mask=instance_mask, centers=centers, offsets=offsets)
+                    #hmap, gtmap = re['image'], re['gtmap']
+                    #instance_mask, centers, offsets = re['inst_mask'], re['centers'], re['offsets']
+                    #gtmap = gtmap.astype(np.int64)
+                    pass
 
                 hmap = (hmap / 1000.0).astype(np.float32)[None]
 
@@ -336,6 +344,49 @@ class SegData:
         return hmap, gtmap
 
 
+def offset2rgb(offset, mask):
+    x = np.zeros(list(offset.shape[1:]) + [3])
+
+    mag = np.linalg.norm(offset, axis=0)
+    d = (np.arctan2(offset[1], offset[0]) + np.pi) / (2*np.pi) * (180 / 255)
+
+    hsv = np.dstack([d, mag * 10.0, np.ones_like(d)])
+    hsv = np.uint8(np.clip(hsv, 0, 1) * 255)
+    rgb = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB) * np.uint8(mask[0][:, :, None])
+
+    return rgb
+
+
+def create_pan_fig(x, y_hat, mask, cls, centers, offsets):
+    y_hat = y_hat.detach().cpu().numpy()
+    cls = cls.detach().cpu().numpy()
+    mask = mask.detach().cpu().numpy()
+    centers = centers.detach().cpu().numpy()
+    offsets = offsets.detach().cpu().numpy()
+
+    cls_pred = y_hat[:, :N_CLASSES]
+    center_pred = y_hat[:, N_CLASSES:N_CLASSES+1]
+    offset_pred = y_hat[:, N_CLASSES+1:N_CLASSES+3]
+
+    fig, ax = plt.subplots(8, 8)
+
+    for i in range(8):
+        ax[0, i].imshow(x[i, 0])
+
+        ax[1, i].imshow(visualize(cls_pred[i].argmax(axis=0)), interpolation='nearest')
+        ax[2, i].imshow(visualize(cls[i]), interpolation='nearest')
+        ax[3, i].imshow(centers[i, 0], vmin=0, vmax=1)
+        ax[4, i].imshow(center_pred[i, 0], vmin=0, vmax=1)
+        ax[5, i].imshow(offset2rgb(offsets[i], mask[i]))
+        ax[6, i].imshow(offset2rgb(offset_pred[i], mask[i]))
+        ax[7, i].imshow(mask[i, 0])
+
+    fig.set_size_inches(30, 24)
+    fig.tight_layout()
+
+    return fig
+
+
 def create_fig(y_hat, y, classification=False, placing=False, picking=False):
     fig, ax = plt.subplots(3, 8)
     # y_hat = F.sigmoid(y_hat).detach().cpu().numpy()
@@ -348,11 +399,6 @@ def create_fig(y_hat, y, classification=False, placing=False, picking=False):
 
     y_hat = y_hat.detach().cpu().numpy()
     y = y.cpu().numpy()
-
-    colors = plt.get_cmap('tab20')
-    newcolors = colors(np.arange(20))
-    newcolors = np.concatenate([np.array([[0, 0, 0, 1.0]]), newcolors], 0)
-    newcmp = ListedColormap(newcolors)
 
     for i in range(8):
         ax[0, i].imshow(x[i, 0])
@@ -404,13 +450,19 @@ def panoptic_loss(y, cls, inst_mask, centers, offsets):
     #  centers = Nx1xHxW
     #  offsets = Nx2xHxW
 
-    cls_pred = y[:, :cls.shape[1]]
-    center_pred = y[:, cls.shape[1]:cls.shape[1]+1]
-    offset_pred = y[:, cls.shape[1]+1:cls.shape[1]+3]
+    cls_pred = y[:, :N_CLASSES]
+    center_pred = y[:, N_CLASSES:N_CLASSES+1]
+    offset_pred = y[:, N_CLASSES+1:N_CLASSES+3]
 
     cls_loss = F.cross_entropy(cls_pred, cls.cuda(), reduction='none').sum(2).sum(1).mean()
-    center_loss = F.binary_cross_entropy_with_logits(center_pred, centers, reduction='none').sum(2).sum(1).mean()
-    offset_loss = F.l1_loss(offset_pred, offsets, reduction='none').sum(2).sum(1).mean()
+    center_loss = F.mse_loss(center_pred, centers.cuda(), reduction='none').sum(2).sum(1).mean()
+    offset_loss = (F.l1_loss(offset_pred, offsets.cuda(), reduction='none')*inst_mask.float().cuda()).sum(2).sum(1).mean()
+
+    cls_loss *= 1
+    center_loss *= 10000.0
+    offset_loss *= 1000.0
+
+    print(cls_loss.item(), center_loss, offset_loss)
 
     return cls_loss + center_loss + offset_loss
 
@@ -435,9 +487,9 @@ if __name__ == '__main__':
         return (x - 0.2) / 0.2
 
     if args.panoptic:
-        output_channels = 23 + 1 + 2
+        output_channels = N_CLASSES + 1 + 2
     elif args.classify:
-        output_channels = 23
+        output_channels = N_CLASSES
     elif args.placing:
         output_channels = 3
     elif args.picking:
@@ -449,7 +501,7 @@ if __name__ == '__main__':
     if not args.fast:
         bs = 8
     if args.no_hmap:
-        bs = 1
+        bs = 16
 
 
     # elif args.picking:
@@ -507,7 +559,7 @@ if __name__ == '__main__':
 
     m = None
 
-    for ep in range(101):
+    for ep in range(100001):
         # np.random.seed()
         total_loss = 0
         model.train()
@@ -536,14 +588,19 @@ if __name__ == '__main__':
             # fig = create_fig(y_hat, y, classification=args.classify)
             # fig.savefig(os.path.join(root, 'train_{:05d}.png'.format(ep)))
 
-            print(i, len(train_loader), loss)
+            print(ep, i, len(train_loader), loss)
 
         loss_avg = total_loss / len(train_loader)
         print(loss_avg)
         train_losses.append(loss_avg)
 
-        fig = create_fig(y_hat, y, classification=args.classify, placing=args.placing, picking=args.picking)
-        fig.savefig(os.path.join(root, 'train_{:05d}.png'.format(ep)))
+        if ep % 10 == 0:
+            if args.panoptic:
+                fig = create_pan_fig(x, y_hat, inst_mask, seg_cls, centers, offsets)
+            else:
+                fig = create_fig(x, y_hat, y, classification=args.classify, placing=args.placing, picking=args.picking)
+            fig.savefig(os.path.join(root, 'train_{:05d}.png'.format(ep)))
+            fig.clf()
 
         del y_hat, loss
         torch.cuda.empty_cache()
@@ -552,27 +609,36 @@ if __name__ == '__main__':
         model.eval()
 
         for i, d in enumerate(val_loader):
-            if args.placing or args.picking:
-                x, y, m = d
-            else:
-                x, y = d
-
-            with torch.no_grad():
-                y_hat = model.forward(phi(x).cuda())
-                # loss = F.binary_cross_entropy_with_logits(y_hat, y, reduction='none').sum(3).sum(2).sum(1).mean()
-                loss = calc_loss(y_hat, y, m)
+            with torch.no_grad():   
+                if args.placing or args.picking:
+                    x, y, m = d
+                    y_hat = model.forward(phi(x).cuda())
+                    loss = calc_loss(y_hat, y, m)
+                elif args.panoptic:
+                    x, seg_cls, inst_mask, centers, offsets = d
+                    y_hat = model.forward(phi(x).cuda())
+                    loss = panoptic_loss(y_hat, seg_cls, inst_mask, centers, offsets)
+                else:
+                    x, y = d
+                    y_hat = model.forward(phi(x).cuda())
+                    loss = calc_loss(y_hat, y, m) 
 
             loss = loss.cpu().detach().numpy()
             total_loss += loss
 
-            print(i, len(val_loader), loss)
+            print(ep, i, len(val_loader), loss)
 
         loss_avg = total_loss / len(val_loader)
         print(loss_avg)
         val_losses.append(loss_avg)
 
-        fig = create_fig(y_hat, y, classification=args.classify, placing=args.placing, picking=args.picking)
-        fig.savefig(os.path.join(root, 'val_{:05d}.png'.format(ep)))
+        if ep % 10 == 0:
+            if args.panoptic:
+                fig = create_pan_fig(x, y_hat, inst_mask, seg_cls, centers, offsets)
+            else:
+                fig = create_fig(x, y_hat, y, classification=args.classify, placing=args.placing, picking=args.picking)
+            fig.savefig(os.path.join(root, 'val_{:05d}.png'.format(ep)))
+            fig.clf()
 
         plt.clf()
         plt.figure(figsize=(4, 3))
@@ -583,5 +649,5 @@ if __name__ == '__main__':
         plt.tight_layout()
         plt.savefig(os.path.join(root, 'loss.png'))
 
-        if ep % 1 == 0:
+        if ep % 100 == 0:
             torch.save(model.state_dict(), os.path.join(root, 'weights_{:03d}.p'.format(ep)))
