@@ -51,7 +51,7 @@ COLORS = np.concatenate([np.array([[0, 0, 0, 1.0]]), newcolors, np.array([[1, 1,
 def visualize(out):
     x = np.zeros((out.shape[0], out.shape[1], 3), dtype=np.uint8)
 
-    for i in range(22):
+    for i in range(N_CLASSES):
         c = COLORS[i]
         x[out == i] = tuple(np.uint8(c[:3] * 255))
 
@@ -151,9 +151,9 @@ class SegData:
             ])
         elif panoptic:
             self.transform = A.Compose([
-                A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0, rotate_limit=360 if placing else 30,
+                A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0, rotate_limit=30,
                                    border_mode=cv2.BORDER_CONSTANT, value=0),
-                ], additional_targets={'gtmap': 'mask', 'centers': 'mask', 'offsets': 'mask', 'inst_mask': 'mask'})
+                ], additional_targets={'gtmap': 'mask', 'segmap': 'mask'})
         else:
             self.transform = A.Compose([
                 A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0, rotate_limit=360 if placing else 30,
@@ -207,7 +207,7 @@ class SegData:
         # gtmap = np.logical_or.reduce([segmap == furns[i] for i in [11, 12, 13, 14]])
         if self.classify:
             placed = info.get('placed_obj_ids', [])
-            gtmap = np.zeros_like(segmap).astype(np.int64)
+            gtmap = np.zeros_like(segmap).astype(np.int32)
 
             for id in info['obj_ids']:
                 if id in placed:
@@ -284,10 +284,17 @@ class SegData:
 
         if self.classify:
             if self.panoptic:
-                instance_mask = np.logical_or.reduce([gtmap == i for i in [2, 3]])
+                #if self.train:
+                #    re = self.transform(image=hmap, gtmap=gtmap, segmap=segmap)
+                #    print('seg', segmap.dtype, re['segmap'].dtype)
+                #    print('gt', gtmap.dtype, re['gtmap'].dtype)
+                #    hmap, gtmap, segmap = re['image'], re['gtmap'], re['segmap']
+
+                instance_mask = np.logical_or.reduce([gtmap == i for i in [2, 3]]).astype(np.uint8)
                 centers = np.zeros(instance_mask.shape, dtype=np.float32)[None]
                 offsets = np.zeros([2] + list(instance_mask.shape), dtype=np.float32)
                 H, W = gtmap.shape[:2]
+                print(np.unique(segmap[instance_mask]), np.unique(segmap))
 
                 for k in np.unique(segmap[instance_mask]):
                     obj_mask = segmap == k
@@ -307,14 +314,7 @@ class SegData:
                 offsets /= W
                 centers = np.float32(centers)
                 instance_mask = np.float32(instance_mask[None])
-
-                if self.train:
-                    #re = self.transform(image=hmap, masks=[gtmap, instance_mask, centers, offsets])
-                    #re = self.transform(image=hmap, gtmap=gtmap, inst_mask=instance_mask, centers=centers, offsets=offsets)
-                    #hmap, gtmap = re['image'], re['gtmap']
-                    #instance_mask, centers, offsets = re['inst_mask'], re['centers'], re['offsets']
-                    #gtmap = gtmap.astype(np.int64)
-                    pass
+                gtmap = np.int64(gtmap)
 
                 hmap = (hmap / 1000.0).astype(np.float32)[None]
 
@@ -462,8 +462,6 @@ def panoptic_loss(y, cls, inst_mask, centers, offsets):
     cls_loss *= 1
     center_loss *= 10000.0
     offset_loss *= 1000.0
-
-    print(cls_loss.item(), center_loss, offset_loss)
 
     return cls_loss, center_loss, offset_loss
 
