@@ -284,17 +284,16 @@ class SegData:
 
         if self.classify:
             if self.panoptic:
-                #if self.train:
-                #    re = self.transform(image=hmap, gtmap=gtmap, segmap=segmap)
+                if self.train:
+                    re = self.transform(image=hmap, gtmap=gtmap, segmap=segmap)
                 #    print('seg', segmap.dtype, re['segmap'].dtype)
                 #    print('gt', gtmap.dtype, re['gtmap'].dtype)
-                #    hmap, gtmap, segmap = re['image'], re['gtmap'], re['segmap']
+                    hmap, gtmap, segmap = re['image'], re['gtmap'], re['segmap']
 
-                instance_mask = np.logical_or.reduce([gtmap == i for i in [2, 3]]).astype(np.uint8)
+                instance_mask = np.logical_or.reduce([gtmap == i for i in [2, 3]])
                 centers = np.zeros(instance_mask.shape, dtype=np.float32)[None]
                 offsets = np.zeros([2] + list(instance_mask.shape), dtype=np.float32)
                 H, W = gtmap.shape[:2]
-                print(np.unique(segmap[instance_mask]), np.unique(segmap))
 
                 for k in np.unique(segmap[instance_mask]):
                     obj_mask = segmap == k
@@ -646,7 +645,7 @@ if __name__ == '__main__':
         print(loss_avg)
         val_losses.append(loss_avg)
 
-        if ep % 10 == 0:
+        if ep % 1 == 0:
             if args.panoptic:
                 fig = create_pan_fig(x, y_hat, inst_mask, seg_cls, centers, offsets)
             else:
@@ -663,5 +662,5 @@ if __name__ == '__main__':
         plt.tight_layout()
         plt.savefig(os.path.join(root, 'loss.png'))
 
-        if ep % 100 == 0:
+        if ep % 1 == 0:
             torch.save(model.state_dict(), os.path.join(root, 'weights_{:03d}.p'.format(ep)))
