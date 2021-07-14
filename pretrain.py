@@ -285,6 +285,7 @@ class SegData:
         if self.classify:
             if self.panoptic:
                 if self.train:
+                    assert isinstance(segmap, np.ndarray), 'segmap is {}; {}'.format(type(segmap), self.files[idx])
                     re = self.transform(image=hmap, gtmap=gtmap, segmap=segmap)
                 #    print('seg', segmap.dtype, re['segmap'].dtype)
                 #    print('gt', gtmap.dtype, re['gtmap'].dtype)
@@ -458,9 +459,12 @@ def panoptic_loss(y, cls, inst_mask, centers, offsets):
     center_loss = F.mse_loss(center_pred, centers.cuda(), reduction='none').sum(2).sum(1).mean()
     offset_loss = (F.l1_loss(offset_pred, offsets.cuda(), reduction='none')*inst_mask.float().cuda()).sum(2).sum(1).mean()
 
-    cls_loss *= 1
-    center_loss *= 10000.0
-    offset_loss *= 1000.0
+    #cls_loss *= 1
+    #center_loss *= 100000.0
+    #offset_loss *= 1000.0
+    cls_loss *= 0.01
+    center_loss *= 1000.0
+    offset_loss *= 100.0
 
     return cls_loss, center_loss, offset_loss
 
