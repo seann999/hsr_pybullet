@@ -15,7 +15,7 @@
         </inertia>
       </inertial>
       <collision name="back">
-        <pose>0 0.005 1.02 0 0 0</pose>
+        <pose>0 0.14 1.02 0 0 0</pose>
         <geometry>
           <box>
             <size>0.8 0.02 2.02</size>
@@ -190,6 +190,53 @@
           </script>
         </material>
       </visual>
+
+      <collision name="slit4">
+        <pose>0 0 1.34 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.8 0.28 0.02</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="slit4_v">
+        <pose>0 0 1.34 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.8 0.28 0.02</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>file://media/materials/scripts/gazebo.material</uri>
+            <name>Gazebo/White</name>
+          </script>
+        </material>
+      </visual>
+
+      <collision name="slit5">
+        <pose>0 0 1.64 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.8 0.28 0.02</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="slit5_v">
+        <pose>0 0 1.64 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.8 0.28 0.02</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>file://media/materials/scripts/gazebo.material</uri>
+            <name>Gazebo/White</name>
+          </script>
+        </material>
+      </visual>
+
     </link>
   </model>
 </sdf>
