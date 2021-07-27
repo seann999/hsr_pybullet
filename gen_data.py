@@ -202,6 +202,10 @@ def generate(seed, indices, args):
     # env = make_batch_env(config, n_envs=8)
 
     for i in indices:
+        d = os.path.join(args.root, '{:07d}'.format(i))
+        if os.path.exists(d):
+            continue
+
         t = time.time()
 
         while True:
@@ -244,8 +248,6 @@ def generate(seed, indices, args):
             # cv2.imshow('maskmap', np.uint8(maskmap / maskmap.max() * 255))
             cv2.imshow('hmap', np.uint8(obs[0] / obs[0].max() * 255))
             cv2.waitKey(1)
-
-        d = os.path.join(args.root, '{:07d}'.format(i))
 
         try:
             os.makedirs(d)

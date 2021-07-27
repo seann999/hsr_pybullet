@@ -132,7 +132,7 @@ def analyze2(root, files):
 
 class SegData:
     def __init__(self, root, train, classify=False, placing=False, picking=False, hmap=False, balance=False,
-                 panoptic=True):
+                 panoptic=True, hand=True):
         self.root = root
         self.files = sorted(os.listdir(self.root))
         self.classify = classify
@@ -142,6 +142,7 @@ class SegData:
         self.hmap = hmap
         self.train = train
         self.panoptic = panoptic
+        self.hand = hand
 
         if picking:
             self.transform = A.Compose([
@@ -183,7 +184,7 @@ class SegData:
             self.success = self.success[80000:100000]
 
     def __len__(self):
-        return len(self.files)
+        return len(self.files) * (2 if self.hand else 1)
 
     def __getitem__(self, i):
         if self.balance:
@@ -192,7 +193,13 @@ class SegData:
         else:
             idx = i
 
-        hmap = cv2.imread(os.path.join(self.root, self.files[idx], 'hmap.png' if self.hmap else 'noisy_depth.png'), -1)
+        if self.hand:
+            hand = i % 2 == 0
+            idx = int(i // 2)
+        else:
+            hand = False
+
+        hmap = cv2.imread(os.path.join(self.root, self.files[idx], ('{}hmap.png' if self.hmap else '{}noisy_depth.png').format('hand_' if hand else '')), -1)
 
         # angle = np.random.randint(low=0, high=360)
         # image_center = (112, 112)
@@ -200,7 +207,7 @@ class SegData:
         # hmap = cv2.warpAffine(hmap, rot_mat, (224, 224))
 
         # gtmap = cv2.imread(os.path.join(self.root, self.files[idx], 'maskmap.png'))[:, :, 0] > 0
-        segmap = cv2.imread(os.path.join(self.root, self.files[idx], 'segmap.png' if self.hmap else 'seg.png'),
+        segmap = cv2.imread(os.path.join(self.root, self.files[idx], ('{}segmap.png' if self.hmap else '{}seg.png').format('hand_' if hand else '')),
                             -1)  # .astype(np.float32)
         info = json.load(open(os.path.join(self.root, self.files[idx], 'ids.json'), 'r'))
         # furns = info['furn_ids']
@@ -528,6 +535,7 @@ if __name__ == '__main__':
                 hmap=not args.no_hmap, panoptic=args.panoptic), batch_size=8, num_workers=8, shuffle=True, pin_memory=True, drop_last=True,
         worker_init_fn=init_fn)
 
+    model.load_state_dict(torch.load('pretrain_results/pan07-hand/weights_018.p'))
     model.cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 

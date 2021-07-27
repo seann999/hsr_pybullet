@@ -356,11 +356,11 @@ class HSREnv:
                 client.setJointMotorControl2(robot.id, joint_index, p.POSITION_CONTROL,
                                              targetPosition=joint_angle)
 
-    def reset_pose(self, full_random_pose=False, check_collisions=[]):
+    def reset_pose(self, full_random_pose=False, check_collisions=[], spawn_area=[[-3, 3], [-2, 2]]):
         for _ in range(100):
             neutral = [0 for _ in self.robot.get_states()['joint_position']]
-            neutral[0] = np.random.uniform(-3, 3)  # q[0]
-            neutral[1] = np.random.uniform(-2, 2)  # q[1]
+            neutral[0] = np.random.uniform(spawn_area[0][0], spawn_area[0][1])  # q[0]
+            neutral[1] = np.random.uniform(spawn_area[1][0], spawn_area[1][1])  # q[1]
             # neutral[2] = q[2]
 
             if full_random_pose:
@@ -635,7 +635,7 @@ class WRSEnv(HSREnv):
         self.placed_objects = []
 
         self.res = 224
-        self.hmap_bounds = np.array([[0, 1], [-0.5, 0.5], [-0.05, 1]])
+        self.hmap_bounds = np.array([[0, 3], [-1.5, 1.5], [-0.05, 1]])
         assert (self.hmap_bounds[0, 1] - self.hmap_bounds[0, 0]) == (self.hmap_bounds[1, 1] - self.hmap_bounds[1, 0])
         self.px_size = (self.hmap_bounds[0, 1] - self.hmap_bounds[0, 0]) / self.res
         self.num_rots = 16
@@ -817,7 +817,7 @@ class WRSEnv(HSREnv):
             self.c_gui.removeBody(obj)
         #     self.c_gui.resetBasePositionAndOrientation(id, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
 
-        self.reset_pose(full_random_pose=full_random_pose, check_collisions=self.furn_ids.values())
+        self.reset_pose(full_random_pose=full_random_pose, check_collisions=self.furn_ids.values(), **kwargs)
 
         if not full_random_pose:
             self.move_joints({
@@ -871,12 +871,13 @@ class WRSEnv(HSREnv):
         spawn_objects(2, np.array(
             [[pos[0] - 0.1, pos[1] - 0.1, pos[2] + 0.1], [pos[0] + 0.1, pos[1] + 0.1, pos[2] + 0.2]]), 0)
 
-        spawn_objects(10, [[2.6, -0.6, 0.49], [2.8, -1.4, 0.79]], min_num=5, max_side_len=0.3)
-        spawn_objects(10, [[2.6, -0.6, 0.79], [2.8, -1.4, 1.04]], min_num=5, max_side_len=0.3)
-        spawn_objects(10, [[2.6, -0.6, 1.04], [2.8, -1.4, 1.34]], min_num=5, max_side_len=0.3)
-        spawn_objects(10, [[2.6, -0.6, 0.49], [2.8, -1.4, 0.79]], min_num=5, max_side_len=0.1)
-        spawn_objects(10, [[2.6, -0.6, 0.79], [2.8, -1.4, 1.04]], min_num=5, max_side_len=0.1)
-        spawn_objects(10, [[2.6, -0.6, 1.04], [2.8, -1.4, 1.34]], min_num=5, max_side_len=0.1)
+        # shelf
+        spawn_objects(10, [[2.6, -0.6, 0.49], [2.8, -1.4, 0.79]], min_num=1, max_side_len=0.3)
+        spawn_objects(10, [[2.6, -0.6, 0.79], [2.8, -1.4, 1.04]], min_num=1, max_side_len=0.3)
+        spawn_objects(10, [[2.6, -0.6, 1.04], [2.8, -1.4, 1.34]], min_num=1, max_side_len=0.3)
+        spawn_objects(10, [[2.6, -0.6, 0.49], [2.8, -1.4, 0.79]], min_num=1, max_side_len=0.1)
+        spawn_objects(10, [[2.6, -0.6, 0.79], [2.8, -1.4, 1.04]], min_num=1, max_side_len=0.1)
+        spawn_objects(10, [[2.6, -0.6, 1.04], [2.8, -1.4, 1.34]], min_num=1, max_side_len=0.1)
 
         # print('settle')
         x = [self.c_gui.getBasePositionAndOrientation(i)[0] for i in self.obj_ids]
@@ -984,7 +985,7 @@ class GraspEnv(WRSEnv):
         self.target_loc = None
         self.break_collision = self.break_collision_default
 
-        super().reset(full_random_pose=full_random_pose)
+        super().reset(full_random_pose=full_random_pose, spawn_area=[[-3, 0], [-2, 2]])
         # self.reset_env()
         self.stats = {
             'grasp_rotations': [0] * 16,
@@ -1266,8 +1267,9 @@ class GraspEnv(WRSEnv):
 
         if self.random_hand and np.random.random() < 0.5:
             self.move_arm({
-                'arm_lift_joint': np.random.uniform(0.2, 0.69),
-                'arm_flex_joint': -1.57 + np.random.uniform(-0.1, 0.1) * np.pi,
+                'arm_lift_joint': np.random.uniform(0, 0.69),
+                'arm_flex_joint': np.random.uniform(-0.6, -0.1) * np.pi,
+                'wrist_flex_joint': np.random.uniform(-1.91, 0),
                 'arm_roll_joint': np.random.uniform(-0.1, 0.1) * np.pi,
                 'wrist_roll_joint': np.random.uniform(-1.57, 1.57),
             }, fill=False)

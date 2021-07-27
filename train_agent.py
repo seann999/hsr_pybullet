@@ -155,7 +155,7 @@ if __name__ == '__main__':
     env = make_batch_env(config, 48)
     q_func = QFCN(pretrain=args.pretrain, pick_only=args.pick_only)
 
-    k = 1
+    k = 4
     gamma = 0 if args.pick_only else 0.5
 
     explorer = pfrl.explorers.LinearDecayEpsilonGreedy(
@@ -175,7 +175,7 @@ if __name__ == '__main__':
         explorer,
         replay_start_size=16 if args.test_run else 1000 * k,
         update_interval=k,
-        target_update_interval=1 if args.pick_only else 250 * k,
+        target_update_interval=k if args.pick_only else 250 * k,
         minibatch_size=8 if args.test_run else 8,
         gpu=gpu,
         phi=phi,
@@ -194,7 +194,7 @@ if __name__ == '__main__':
         log_interval=1000,
         eval_n_steps=None,
         eval_n_episodes=100,
-        max_episode_len=10,
+        max_episode_len=1 if args.pick_only else 10,
         eval_interval=1000,
         outdir=args.outdir,
         save_best_so_far_agent=True,
