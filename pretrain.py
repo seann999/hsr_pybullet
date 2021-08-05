@@ -175,13 +175,14 @@ class SegData:
         # analyze(root, self.files)
         # analyze2(root, self.files)
         # exit()
+        split = int(len(self.files) * 0.8)
 
         if train:
-            self.files = self.files[:80000]
-            self.success = self.success[:80000]
+            self.files = self.files[:split]
+            self.success = self.success[:split]
         else:
-            self.files = self.files[80000:100000]
-            self.success = self.success[80000:100000]
+            self.files = self.files[split:len(self.files)]
+            self.success = self.success[split:len(self.files)]
 
     def __len__(self):
         return len(self.files) * (2 if self.hand else 1)
@@ -395,7 +396,7 @@ def create_pan_fig(x, y_hat, mask, cls, centers, offsets):
     return fig
 
 
-def create_fig(y_hat, y, classification=False, placing=False, picking=False):
+def create_fig(x, y_hat, y, classification=False, placing=False, picking=False):
     fig, ax = plt.subplots(3, 8)
     # y_hat = F.sigmoid(y_hat).detach().cpu().numpy()
     # y_hat = y_hat.detach()
@@ -535,7 +536,6 @@ if __name__ == '__main__':
                 hmap=not args.no_hmap, panoptic=args.panoptic), batch_size=8, num_workers=8, shuffle=True, pin_memory=True, drop_last=True,
         worker_init_fn=init_fn)
 
-    model.load_state_dict(torch.load('pretrain_results/pan07-hand/weights_018.p'))
     model.cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 

@@ -1265,7 +1265,7 @@ class GraspEnv(WRSEnv):
 
             print('seed:', self.seed, summary, time.time() - self.ep_start_time)
 
-        if self.random_hand and np.random.random() < 0.5:
+        if self.random_hand and action_type == 'grasp' and np.random.random() < 0.5:
             self.move_arm({
                 'arm_lift_joint': np.random.uniform(0, 0.69),
                 'arm_flex_joint': np.random.uniform(-0.6, -0.1) * np.pi,
@@ -1294,7 +1294,7 @@ def to_maps(rgb, depth, seg, config, bounds, px_size, depth_noise=False, pos_noi
 
     if depth_noise:
         # if np.random.uniform() < 0.5:
-        depth = eu.distort(depth, np.random.uniform(0, 10))
+        depth = eu.distort(depth, np.random.uniform(0, 1))
 
     if pos_noise:
         config['position'] = np.array(config['position']) + np.random.normal(0, 0.01, 3)

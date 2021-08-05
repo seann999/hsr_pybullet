@@ -270,7 +270,7 @@ def generate(seed, indices, args):
         cv2.imwrite(os.path.join(d, 'hand_seg.png'), env.seg)
         cv2.imwrite(os.path.join(d, 'hand_cmap.png'), env.cmap[:, :, ::-1])
         cv2.imwrite(os.path.join(d, 'hand_hmap.png'), np.uint16(env.hmap * 1000))
-        cv2.imwrite(os.path.join(d, 'hand_segmap.png'), segmap[:, :, 0])
+        cv2.imwrite(os.path.join(d, 'hand_segmap.png'), env.segmap[:, :, 0])
 
         json.dump(result_data, open(os.path.join(d, 'ids.json'), 'w'))
 
@@ -303,6 +303,7 @@ if __name__ == '__main__':
     parser.add_argument('--show-maps', action='store_true')
     parser.add_argument('--root', type=str, default='pretrain_data/test')
     parser.add_argument('--workers', type=int, default=1)
+    parser.add_argument('--dataset-size', type=int, default=10000)
     args = parser.parse_args()
 
     try:
@@ -311,5 +312,5 @@ if __name__ == '__main__':
         pass
 
     pool = Pool(args.workers)
-    indices = np.array_split(range(100000), args.workers)
+    indices = np.array_split(range(args.dataset_size), args.workers)
     result = pool.starmap(generate, [(i, idx, args) for i, idx in enumerate(indices)])

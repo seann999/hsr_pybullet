@@ -115,7 +115,7 @@ def phi(x):
 
 
 def make_env(idx, config):
-    env = GraspEnv(connect=p.DIRECT, config=config, check_object_collision=False, random_hand=True)
+    env = GraspEnv(connect=p.DIRECT, config=config, check_object_collision=False, random_hand=False)
     env.set_seed(idx)
     return env
 
@@ -193,7 +193,7 @@ if __name__ == '__main__':
         steps=40000 * k,
         log_interval=1000,
         eval_n_steps=None,
-        eval_n_episodes=100,
+        eval_n_episodes=10,
         max_episode_len=1 if args.pick_only else 10,
         eval_interval=1000,
         outdir=args.outdir,
