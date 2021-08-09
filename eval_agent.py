@@ -67,13 +67,14 @@ if __name__ == '__main__':
     parser.add_argument('--idle', type=int, default=0)
     parser.add_argument('--debug-agent', action='store_true')
     parser.add_argument('--gui', action='store_true')
+    parser.add_argument('--shelf', action='store_true')
     parser.add_argument('--n-objects', type=int, default=30)
     args = parser.parse_args()
 
     config = {'depth_noise': True, 'rot_noise': True, 'action_grasp': True,
               'action_look': True, 'spawn_mode': 'circle'}
     env = GraspEnv(config=config, n_objects=args.n_objects, connect=p.GUI if args.gui else p.DIRECT,
-                   ycb=not args.shapenet, check_object_collision=False, random_hand=True)
+                   ycb=not args.shapenet, check_object_collision=False, random_hand=not args.shelf, shelf=args.shelf)
 
     class MaxAgent:
         def __init__(self):
@@ -141,17 +142,35 @@ if __name__ == '__main__':
             while True:
                 print('>>>>')
                 if args.show_hmap:
-                    cv2.imshow('hmap', np.uint8(obs[0] / obs[0].max() * 255))
-                    cv2.waitKey(1)
+                    # cv2.imshow('hmap', np.uint8(obs[0][0] / obs[0][0].max() * 255))
+                    # cv2.waitKey(1)
+                    plt.clf()
+                    plt.imshow(obs[0][0])#env.cmap)
+                    plt.colorbar()
+                    plt.show()
 
                 # Uncomment to watch the behavior in a GUI window
                 # env.render()
                 if agent_type == 'random':
                     action = random_fn()
+                elif agent_type == 'argmax':
+                    action = obs[0][0].flatten().argmax()
+                elif agent_type == 'scripted':
+                    action = obs[0][0].flatten().argmax()
+                    
+                    found_obj = False
+                    for id in np.unique(env.segmap):
+                        if id in env.obj_ids:
+                            found_obj = True
+                            py, px = np.where(env.segmap[:, :, 0] == id)
+                            idx = np.random.randint(len(py))
+                            py, px = py[idx], px[idx]
+                            action = py * 224 + px
+                    if not found_obj:
+                        action = 224 * 224 + 112 * 224 + 112
                 else:
                     action = agent.act(obs)
-
-                visualize_grasps(env, q_func)
+                    visualize_grasps(env, q_func)
 
                 print('acting')
                 obs, reward, done, _ = env.step(action)

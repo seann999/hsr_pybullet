@@ -201,7 +201,7 @@ class HSREnv:
         return uppers, lowers, ranges, rest
 
     def get_heightmap(self, only_render=False, bounds=np.array([[0, 3], [-1.5, 1.5], [0, 0.3]]), px_size=0.01,
-                      hand=False,
+                      hand=False, vertical=False,
                       **kwargs):
         marker_poses = []
 
@@ -229,6 +229,10 @@ class HSREnv:
         camera_config = copy.deepcopy(CAMERA_REALSENSE_CONFIG if hand else CAMERA_XTION_CONFIG)
         camera_config[0]['position'] = list(cam_state.world_link_frame_position)
         camera_config[0]['rotation'] = orn
+
+        if vertical:
+            rot = R.from_rotvec(-np.pi*0.5 * base_mat[:3, 1]).as_matrix()
+            base_mat[:3, :3] = rot.dot(base_mat[:3, :3])
 
         if only_render:
             rgb, depth, seg = eu.render_camera(self.c_gui, camera_config[0])
@@ -559,20 +563,26 @@ class HSREnv:
         steps = 240 * t
         return self.sim_steps(steps, stop_at_contact=stop_at_contact, min_steps=min_steps)
 
-    def grasp_primitive(self, pos, angle=0, frame=None, stop_at_contact=False):
-        euler = [np.pi, 0, angle]
+    def grasp_primitive(self, pos, angle=0, frame=None, stop_at_contact=False, pregrasp_pose=None):
+        if isinstance(angle, (int, float)):
+            euler = [np.pi, 0, angle]
+        else:
+            euler = angle
         # print('angle:', angle)
         # euler = [np.pi, -0.5 * np.pi, 0]
         rot = p.getQuaternionFromEuler(euler)
         pos, rot = eu.transform(pos, rot, frame)
 
-        if np.abs(pos[0]) < BOUNDS and np.abs(pos[1]) < BOUNDS:
-            self.move_arm({
+        if pregrasp_pose is None:
+            pregrasp_pose = {
                 'arm_lift_joint': min(0.69, pos[2] + 0.1),
                 'arm_flex_joint': -1.57,
                 'arm_roll_joint': 0,
                 'wrist_flex_joint': -1.57,
-            }, fill=False)
+            }
+
+        if np.abs(pos[0]) < BOUNDS and np.abs(pos[1]) < BOUNDS:
+            self.move_arm(pregrasp_pose, fill=False)
 
             # print(R.from_euler('xyz', euler).as_matrix())
             rvec = R.from_quat(rot).as_matrix()[:3, 2]
@@ -809,22 +819,26 @@ class WRSEnv(HSREnv):
 
         return ids
 
-    def reset(self, full_random_pose=False, **kwargs):
+    def reset(self, full_random_pose=False, reset_values=None, **kwargs):
         super().reset()
         self.furn_ids = self.generate_room(full_range=self.full_range)
 
         for obj in self.obj_ids:
             self.c_gui.removeBody(obj)
-        #     self.c_gui.resetBasePositionAndOrientation(id, (-100, np.random.uniform(-100, 100), -100), (0, 0, 0, 1))
 
-        self.reset_pose(full_random_pose=full_random_pose, check_collisions=self.furn_ids.values(), **kwargs)
+        self.reset_pose(
+            full_random_pose=full_random_pose,
+            check_collisions=self.furn_ids.values(),
+            **kwargs
+        )
 
         if not full_random_pose:
-            self.move_joints({
-                'joint_rz': np.random.uniform(-np.pi, np.pi),
-                'head_tilt_joint': np.random.uniform(-1.57, 0),
-                # 'head_pan_joint': np.random.uniform(np.pi * -0.25, np.pi * 0.25),
-            }, sim=False)
+            if reset_values is None:
+                reset_values = {
+                    'joint_rz': np.random.uniform(-np.pi, np.pi),
+                    'head_tilt_joint': np.random.uniform(-1.57, 0),
+                }
+            self.move_joints(reset_values, sim=False)
 
         self.obj_ids = []
         self.placed_objects = []
@@ -910,10 +924,11 @@ class WRSEnv(HSREnv):
 
 
 class GraspEnv(WRSEnv):
-    def __init__(self, config=DEFAULT_CONFIG, break_collision=True, check_object_collision=True, random_hand=False,
+    def __init__(self, config=DEFAULT_CONFIG, break_collision=True, check_object_collision=True, random_hand=False, shelf=False,
                  **kwargs):
         super(GraspEnv, self).__init__(**kwargs)
         self.check_object_collision = check_object_collision
+        self.check_furniture_collision = True # not shelf
         self.break_collision_default = break_collision
         self.break_collision = self.break_collision_default
         self.random_hand = random_hand
@@ -923,8 +938,14 @@ class GraspEnv(WRSEnv):
         self.observation_space = Box(-1, 1, (self.res, self.res))
         self.config = config
         self.seed = None
+        self.shelf = shelf
 
-        n_actions = 18 * self.res * self.res
+        if self.shelf:
+            self.hmap_bounds = np.array([[0.3, 2.3], [-1.0, 1.0], [-2, 0]])
+            self.px_size = (self.hmap_bounds[0, 1] - self.hmap_bounds[0, 0]) / self.res
+
+        self.num_rots = 1 if shelf else 16
+        n_actions = (3 if shelf else 18) * self.res * self.res
         self.action_space = Discrete(n_actions)
 
         self.hmap, self.obs_config, self.segmap = None, None, None
@@ -947,7 +968,7 @@ class GraspEnv(WRSEnv):
                             self.object_collision = True
                             break
 
-                if not self.furniture_collision:
+                if self.check_furniture_collision and not self.furniture_collision:
                     ks = [k for k in self.furn_ids.keys() if 'container' not in k and 'tray' not in k]
                     for id in [self.furn_ids[k] for k in ks]:
                         if len(self.c_gui.getClosestPoints(self.robot.id, id, 0)) > 0:
@@ -985,8 +1006,20 @@ class GraspEnv(WRSEnv):
         self.target_loc = None
         self.break_collision = self.break_collision_default
 
-        super().reset(full_random_pose=full_random_pose, spawn_area=[[-3, 0], [-2, 2]])
-        # self.reset_env()
+        if self.shelf:
+            area = [[1.5, 2], [-1.5, -0.5]]
+            vals = {
+                'joint_rz': np.random.uniform(-0.25*np.pi, 0.25*np.pi),
+                'head_tilt_joint': np.random.uniform(-0.25*np.pi, 0.25*np.pi),
+                'torso_lift_joint': np.random.uniform(0, 0.345),
+            }
+
+            super().reset(full_random_pose=full_random_pose, spawn_area=area,
+                          reset_values=vals,)
+        else:
+            area = [[-3, 0], [-2, 2]]
+            super().reset(full_random_pose=full_random_pose, spawn_area=area)
+
         self.stats = {
             'grasp_rotations': [0] * 16,
             'object_collisions': 0,
@@ -1009,7 +1042,7 @@ class GraspEnv(WRSEnv):
 
     def update_obs(self, hand=False):
         rgb, depth, seg, config = self.get_heightmap(only_render=True, return_seg=True, bounds=self.hmap_bounds,
-                                                     px_size=self.px_size, hand=hand)
+                                                     px_size=self.px_size, hand=hand, vertical=self.shelf)
 
         hmap, cmap, segmap, noisy_depth = to_maps(rgb, depth, seg, config, self.hmap_bounds, self.px_size,
                                                   depth_noise=self.config['depth_noise'],
@@ -1170,11 +1203,31 @@ class GraspEnv(WRSEnv):
             x = self.hmap_bounds[0, 0] + grasp_x[1] * self.px_size
             y = self.hmap_bounds[1, 0] + grasp_x[0] * self.px_size
 
-            surface_height = 0
-            self.hmap[self.hmap == 0] = surface_height - self.hmap_bounds[2, 0]
-            z = self.hmap[grasp_x[0], grasp_x[1]] + self.hmap_bounds[2, 0]
+            if self.shelf:
+                z = self.hmap[grasp_x[0], grasp_x[1]] + self.hmap_bounds[2, 0]
+                rot = [np.pi, 0, np.pi]  # avoid shelf collision with wrist
 
-            if self.grasp_primitive([x, y, z], angle, frame=self.obs_config['base_frame'], stop_at_contact=False):
+                q = p.getQuaternionFromEuler(rot)
+                wpos, _ = eu.transform([x, y, z], q, self.obs_config['base_frame'])
+
+                # back up to avoid collision
+                self.move_base_rel(min(-self.hmap[grasp_x[0], grasp_x[1]] + 0.5, 0), 0, 0)
+
+                pregrasp_pose = {
+                    'arm_lift_joint': min(0.69, wpos[2]),
+                    'arm_flex_joint': -1.57,
+                    'arm_roll_joint': 0,
+                    'wrist_flex_joint': 0,
+                }
+            else:
+                surface_height = 0
+                self.hmap[self.hmap == 0] = surface_height - self.hmap_bounds[2, 0]
+                z = self.hmap[grasp_x[0], grasp_x[1]] + self.hmap_bounds[2, 0]
+                rot = [np.pi, 0, angle]
+                pregrasp_pose = None
+
+            if self.grasp_primitive([x, y, z], rot, frame=self.obs_config['base_frame'], stop_at_contact=False,
+                                    pregrasp_pose=pregrasp_pose):
                 self.holding_pose()
 
                 if self.break_criteria():
@@ -1226,9 +1279,12 @@ class GraspEnv(WRSEnv):
                 self.stats['oob_actions'] += 1
                 reward = -0.25
         elif action_type == 'look':
-            surface_height = 0
-            self.hmap[self.hmap == 0] = surface_height - self.hmap_bounds[2, 0]
-            look_z = self.hmap[look_py, look_px] + self.hmap_bounds[2, 0]
+            if self.shelf:
+                look_z = self.hmap[look_py, look_px] + self.hmap_bounds[2, 0]
+            else:
+                surface_height = 0
+                self.hmap[self.hmap == 0] = surface_height - self.hmap_bounds[2, 0]
+                look_z = self.hmap[look_py, look_px] + self.hmap_bounds[2, 0]
             look_x = self.hmap_bounds[0, 0] + look_px * self.px_size
             look_y = self.hmap_bounds[1, 0] + look_py * self.px_size
 
