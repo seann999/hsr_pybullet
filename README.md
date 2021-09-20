@@ -12,7 +12,7 @@ Place models/ycb in repository (i.e. hsr_pybullet/ycb/002_master_chef_can...)
 
 `train_agent.py` is an example of RL for grasping
 
-## misc
+## credits
 `tmc_wrs_gazebo`, which contains assets for the room based on that of the competition, was copied from https://github.com/hsr-project/tmc_wrs_gazebo/tree/master/tmc_wrs_gazebo_worlds. 
 
 `hsrb_description`, which contains the URDF of the Toyota HSR robot, was copied from https://github.com/hsr-project/hsrb_description.
