@@ -19,4 +19,8 @@ Place models/ycb in repository (i.e. hsr_pybullet/ycb/002_master_chef_can...)
 
 `hsrb_meshes`, which contains the meshes referenced by the robot URDF, was copied from https://github.com/hsr-project/hsrb_meshes.
 
+Part of the panoptic segmentation code comes from https://github.com/bowenc0221/panoptic-deeplab.
+
+The depth sensor noise model comes from https://github.com/facebookresearch/habitat-sim.
+
 A subset of 3D models from the ShapeNet dataset are used by this project. Due to restrictions, these models are only downloadable from the official ShapeNet dataset website.
