@@ -1,3 +1,10 @@
+import sys
+
+try:
+    sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
+except:
+    pass
+
 from scipy.spatial.transform import Rotation as R
 import os
 import trimesh
@@ -6,6 +13,7 @@ import pybullet as p
 import numpy as np
 import ravens.utils.utils as ru
 import numba
+import glob
 
 
 def render_camera(client, config):
@@ -90,60 +98,232 @@ def get_heightmaps(client, configs, bounds=None, return_seg=False, px_size=0.003
     return heightmaps, colormaps, segmaps#, rgbs, depths, segs
 
 
-def spawn_ycb(client, ids=None, area=[[0.5, 3.0], [-1.5, 1.5], [0.4, 0.6]]):
-    folders = sorted([x for x in os.listdir('ycb') if os.path.isdir('ycb/{}'.format(x))])
+def spawn_knob(client, pos):
+    paths = sorted([x for x in os.listdir('assets/shapenetsem/original') if x.endswith('.obj')])
+
+    while True:
+        # print('try')
+        x = random.choice(paths)
+        path = 'assets/shapenetsem/original/{}'.format(x)
+        collision_path = 'assets/shapenetsem/collision/{}'.format(x)
+        mesh = trimesh.load(path, force='mesh', process=False)
+
+        max_side = max(mesh.extents)
+        scale = np.random.uniform(0.05, 0.08) / max_side
+        mesh.apply_scale(scale)
+        extents = np.array(mesh.extents)
+
+        if np.all(extents > 0.04):
+            break
+
+    scale = [scale, scale, scale]
+    centroid = mesh.centroid
+
+    viz_shape_id = client.createVisualShape(
+        shapeType=client.GEOM_MESH,
+        fileName=collision_path, meshScale=scale,
+        visualFramePosition=-centroid,
+    )
+
+    col_shape_id = client.createCollisionShape(
+        shapeType=client.GEOM_MESH,
+        fileName=collision_path, meshScale=scale,
+        collisionFramePosition=-centroid,
+    )
+
+    obj_id = client.createMultiBody(
+        baseMass=0,
+        basePosition=pos,
+        baseCollisionShapeIndex=col_shape_id,
+        baseVisualShapeIndex=viz_shape_id,
+        baseOrientation=R.random().as_quat(),
+        #baseInertialFramePosition=np.array(mesh.center_mass),
+    )
+
+    return obj_id
+
+
+def load_obj(client, mesh_path, collision_path, rand_scale=True, max_side_len=0.35):
+    name_log = 'log.txt'
+
+    mesh = trimesh.load(mesh_path, force='mesh', process=False)
+
+    # assert len(mesh.split()) == 1 and mesh.is_watertight
+
+    if not os.path.exists(collision_path):
+        p.vhacd(mesh_path, collision_path, name_log)
+
+    if rand_scale:
+        max_side = max(mesh.extents)
+        scale = np.random.uniform(0.06, max_side_len) / max_side
+        mesh.apply_scale(scale)
+    else:
+        scale = 1
+
+    centroid = mesh.centroid
+
+    scale = [scale, scale, scale]
+
+    viz_shape_id = client.createVisualShape(
+        shapeType=client.GEOM_MESH,
+        fileName=mesh_path, meshScale=scale,
+        visualFramePosition=-centroid,
+    )
+
+    # print(mesh.center_mass)
+    # print(mesh.mass)
+    # print(success, mesh.is_watertight)
+    # print(mesh.moment_inertia)
+
+    col_shape_id = client.createCollisionShape(
+        shapeType=client.GEOM_MESH,
+        fileName=collision_path, meshScale=scale,
+        collisionFramePosition=-centroid,
+    )
+
+    mesh.density = 150
+    # print('CENTER', mesh.center_mass, mesh.mass)
+
+    obj_id = client.createMultiBody(
+        baseMass=mesh.mass,
+        basePosition=(0, 0, 0),
+        baseCollisionShapeIndex=col_shape_id,
+        baseVisualShapeIndex=viz_shape_id,
+        baseOrientation=(0, 0, 0, 1),
+        baseInertialFramePosition=np.array(mesh.center_mass - centroid),
+    )
+
+    client.changeDynamics(obj_id, -1, lateralFriction=0.25)
+
+    return True, obj_id
+
+
+def spawn_objects(client, ids=None, ycb=True, num_spawn=None, **kwargs):
+    if ycb:
+        paths = sorted([x for x in os.listdir('assets/ycb') if os.path.isdir('assets/ycb/{}'.format(x))])
+    else:
+        paths = sorted([x for x in os.listdir('assets/shapenetsem/original') if x.endswith('.obj')])
+
     obj_ids = []
+    area = [[0.5, 3.0], [-1.5, 1.5], [0.4, 0.6]]
 
     if ids is None:
-        ids = np.random.randint(0, len(folders), 10)
+        num_spawn = np.random.randint(1, 31) if num_spawn is None else num_spawn
+        ids = np.random.randint(0, len(paths), num_spawn)
 
+    # index = 0
     for i in ids:
-        x = folders[i]
+        #x = folders[i]
 
-        path = 'ycb/{}/google_16k/textured.obj'.format(x)
+        while True:
+            x = paths[i]#random.choice(paths)
 
-        name_in = path
-        collision_path = 'ycb/{}/google_16k/collision.obj'.format(x)
-        name_log = 'log.txt'
+            if ycb:
+                path = 'assets/ycb/{}/google_16k/nontextured.stl'.format(x)
+                collision_path = 'assets/ycb/{}/google_16k/collision.obj'.format(x)
+                success, obj_id = load_obj(client, path, collision_path, rand_scale=False, **kwargs)
+            else:
+                path = 'assets/shapenetsem/original/{}'.format(x)
+                collision_path = 'assets/shapenetsem/collision/{}'.format(x)
+                success, obj_id = load_obj(client, path, collision_path, **kwargs)
 
-        if not os.path.exists(collision_path):
-            p.vhacd(name_in, collision_path, name_log)
+            # if not success:
+            #     print('failed load')
+            #     # index += 1
+            #     continue
 
-        viz_shape_id = client.createVisualShape(
-            shapeType=p.GEOM_MESH,
-            fileName=path, meshScale=1)
+            # for _ in range(10):
+            #     valid = True
+            #
+            #     for other in obj_ids:
+            #         pos = (np.random.uniform(area[0][0], area[0][1]), np.random.uniform(area[1][0], area[1][1]),
+            #             np.random.uniform(area[2][0], area[2][1]))
+            #         client.resetBasePositionAndOrientation(obj_id, pos, R.random().as_quat())
+            #
+            #         #if len(client.getClosestPoints(obj_id, other, 0)) > 0:
+            #         #    valid = False
+            #         break
+            #
+            #     if valid:
+            #         break
 
-        mesh = trimesh.load_mesh(path)
-        success = mesh.fill_holes()
-        # print(mesh.center_mass)
-        # print(mesh.mass)
-        # print(success, mesh.is_watertight)
-        # print(mesh.moment_inertia)
+            # client.changeVisualShape(obj_id, -1, textureUniqueId=-1)
 
-        col_shape_id = client.createCollisionShape(
-            shapeType=p.GEOM_MESH,
-            fileName=collision_path, meshScale=1,
-        )
+            obj_ids.append(obj_id)
+            # index += 1
 
-        obj_id = client.createMultiBody(
-            baseMass=0.1,
-            basePosition=(np.random.uniform(area[0][0], area[0][1]),
-                          np.random.uniform(area[1][0], area[1][1]),
-                          np.random.uniform(area[2][0], area[2][1])),
-            baseCollisionShapeIndex=col_shape_id,
-            baseVisualShapeIndex=viz_shape_id,
-            baseOrientation=R.random().as_quat(),
-            baseInertialFramePosition=mesh.center_mass,
-        )
+            break
 
-        client.changeDynamics(obj_id, -1, lateralFriction=0.5)
-
-        obj_ids.append(obj_id)
-
-    for _ in range(240 * 5):
-        client.stepSimulation()
+    # for _ in range(240 * 5):
+    #     client.stepSimulation()
 
     return obj_ids
+
+
+def load_container(client, shape='tray'):
+    folder = 'tray' if shape == 'tray' else 'basket'
+    fn = random.choice(glob.glob('assets/containers/{}/obj/*/*.obj'.format(folder)))
+    what = 'assets/containers/{}/processed/'.format(folder) + fn.split('/')[-1]
+
+    if not os.path.exists(what):
+        mesh = trimesh.load(fn, force='mesh', process=False)
+        mesh2 = trimesh.load(fn, force='mesh', process=False)
+        mesh2.invert()
+
+        mesh = trimesh.util.concatenate(mesh, mesh2)
+        t = np.eye(4)
+        t[:3, :3] = R.from_euler('xyz', [0.5 * np.pi, 0, 0]).as_matrix()
+        mesh.apply_transform(t)
+
+        t = np.eye(4)
+        offset = -mesh.bounds.mean(0)
+        offset[2] = -mesh.bounds[0, 2]
+        t[:3, -1] = offset
+        mesh.apply_transform(t)
+
+        mesh.export(what)
+    else:
+        mesh = trimesh.load(what, force='mesh', process=False)
+
+    if shape == 'tray':
+        target_extents = np.array([np.random.uniform(0.2, 0.3), np.random.uniform(0.3, 0.4), np.random.uniform(0.005, 0.03)])
+    elif shape == 'left container':
+        target_extents = np.array(
+            [np.random.uniform(0.05, 0.15), np.random.uniform(0.05, 0.15), np.random.uniform(0.05, 0.15)])
+    else:
+        target_extents = np.array(
+            [np.random.uniform(0.15, 0.30), np.random.uniform(0.15, 0.30), np.random.uniform(0.10, 0.15)])
+
+    s = target_extents / mesh.extents
+    # s = 0.37 / max(mesh.extents)
+    # s = [s, s, s]
+
+    collision_path = what[:-4] + '_c.obj'
+    if not os.path.exists(collision_path):
+        p.vhacd(what, collision_path, 'log.txt')
+
+    f = what
+    viz_shape_id = client.createVisualShape(
+        shapeType=p.GEOM_MESH,
+        fileName=f, meshScale=s,
+    )
+
+    col_shape_id = client.createCollisionShape(
+        shapeType=p.GEOM_MESH,
+        fileName=collision_path, meshScale=s,
+    )
+
+    obj_id = client.createMultiBody(
+        baseMass=0,
+        basePosition=(0, 0, 0),
+        baseCollisionShapeIndex=col_shape_id,
+        baseVisualShapeIndex=viz_shape_id,
+        baseOrientation=(0, 0, 0, 1),
+    )
+
+    client.changeVisualShape(obj_id, -1, rgbaColor=(1, 1, 1, 1), textureUniqueId=-1)
+
+    return obj_id
 
 
 # Read about the noise model here: http://www.alexteichman.com/octo/clams/
@@ -224,6 +404,20 @@ def distort(depth, noise=1.0):
     return simulate(depth, DISTORT_MODEL, noise)
 
 
+def transform(pos, rot, frame):
+    if frame is None:
+        frame = np.eye(4)
+
+    mat = np.eye(4)
+    mat[:3, -1] = pos
+    mat[:3, :3] = R.from_quat(rot).as_matrix()
+
+    mat = frame.dot(mat)
+    pos = mat[:3, -1]
+    rot = R.from_matrix(mat[:3, :3]).as_quat()
+
+    return pos, rot
+
 # class RedwoodNoiseModelCPUImpl:
 #     model: np.ndarray
 #     noise_multiplier: float
@@ -233,3 +427,22 @@ def distort(depth, noise=1.0):
 #
 #     def simulate(self, gt_depth):
 #         return _simulate(gt_depth, self.model, self.noise_multiplier)
+
+
+if __name__ == '__main__':
+    from multiprocessing import Pool
+
+    paths = sorted([x for x in os.listdir('shapenetsem/original') if x.endswith('.obj')])
+
+    def create_collision(x):
+        path = 'shapenetsem/original/{}'.format(x)
+        collision_path = 'shapenetsem/collision/{}'.format(x)
+
+        if os.path.exists(collision_path):
+            return
+
+        p.vhacd(path, collision_path, 'log.txt')
+
+    pool = Pool(8)
+    result = pool.map(create_collision, paths)
+

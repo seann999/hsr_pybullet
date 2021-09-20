@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 import argparse
 import os
 import yaml
+import functools
+import traceback
 
 
 def show_viz(x, out, look_out):
@@ -32,45 +34,65 @@ def show_viz(x, out, look_out):
     plt.plot([px_x], [px_y], '*r')
 
     plt.subplot(132)
-    plt.imshow(f, vmin=0, vmax=1)
+    plt.imshow(f)
     plt.colorbar()
 
     plt.subplot(133)
-    plt.imshow(look_out.detach().cpu().numpy()[0, 0], vmin=0, vmax=1)
+    plt.imshow(look_out.detach().cpu().numpy()[0, 0])
     plt.colorbar()
 
-    plt.gcf().set_size_inches(10, 8)
+    plt.gcf().set_size_inches(20, 8)
     plt.tight_layout()
     #plt.show()
     plt.savefig('debug.png')
 
+    #input('waiting')
+
 
 class QFCN(nn.Module):
-    def __init__(self, debug=False):
+    def __init__(self, debug=False, pretrain=None, pick_only=False):
         super().__init__()
 
         rots = 16
 
-        self.grasp_model = FCN(rots)
-        self.look_model = FCN(1)
+        self.grasp_model = FCN(rots, fast=False)
+        self.look_model = FCN(1, fast=True)
         self.debug = debug
+        self.last_output = None
+        self.pick_only = pick_only
+
+        if pretrain:
+            self.grasp_model.load_state_dict(torch.load(pretrain))
 
     def forward(self, x):
+        x, grasping = x
+        # print('inference:', x.shape)
         bs = len(x)
+
+        #if grasping > 0:
+        place_out = torch.zeros((bs, 18, 224, 224)).cuda()
+        place_out[:, 17, 112, 37] = 1
+        place_out = place_out.view(bs, -1)
+        #else:
         out = self.grasp_model(x)
-
-        out = torch.stack(out)  # R x N x 1 x H x W
-        out = out.squeeze(2)  # R x N x H x W
-
-        out = out.permute(1, 0, 2, 3)  # N x R x H x W
-
         look_out = self.look_model(x)
+
+        if self.pick_only:
+            look_out *= 0
 
         if self.debug:
             show_viz(x, out, look_out)
+        self.last_output = [out.detach().cpu().numpy(), look_out.detach().cpu().numpy()]
 
         out = torch.cat([out, look_out], 1)
+
+        pad = torch.zeros_like(look_out)
+        out = torch.cat([out, pad], 1)
+
         out = out.reshape(bs, -1)  # N x RHW
+
+        place = (grasping > 0).unsqueeze(1)
+        out = torch.where(place, place_out, out)
 
         return pfrl.action_value.DiscreteActionValue(out)
 
@@ -81,21 +103,41 @@ def args2config(args):
         'rot_noise': args.rot_noise,
         'action_grasp': True,
         'action_look': True,
-        'spawn_mode': 'circle'
+        'spawn_mode': 'circle',
+        'res': 224,
+        'rots': 16,
     }
 
 
 def phi(x):
     # normalize heightmap
-    return (x - 0.05) / 0.05
+    return (x[0] - 0.2) / 0.2, x[1]
+
+
+def make_env(idx, config):
+    env = GraspEnv(connect=p.DIRECT, config=config, check_object_collision=False, random_hand=False)
+    env.set_seed(idx)
+    return env
+
+
+def make_batch_env(config, n_envs=64):
+    vec_env = pfrl.envs.MultiprocessVectorEnv([
+        functools.partial(make_env, idx, config)
+        for idx, env in enumerate(range(n_envs))
+    ])
+    
+    return vec_env
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--outdir', type=str, default='result/test00')
+    parser.add_argument('--load-agent', type=str, default=None)
     parser.add_argument('--depth-noise', action='store_true')
     parser.add_argument('--rot-noise', action='store_true')
     parser.add_argument('--test-run', action='store_true')
+    parser.add_argument('--pretrain', type=str, default=None)
+    parser.add_argument('--pick-only', action='store_true')
     args = parser.parse_args()
 
     config = args2config(args)
@@ -108,43 +150,52 @@ if __name__ == '__main__':
     with open(os.path.join(args.outdir, 'config.yaml'), 'w') as file:
         yaml.dump(config, file)
 
-    env = GraspEnv(connect=p.DIRECT, config=config)
+    # eval_env = GraspEnv(connect=p.DIRECT, config=config)
     # eval_env = GraspEnv(check_visibility=True, connect=p.DIRECT)
-    q_func = QFCN()
+    env = make_batch_env(config, 48)
+    q_func = QFCN(pretrain=args.pretrain, pick_only=args.pick_only)
 
-    gamma = 0.5
+    k = 4
+    gamma = 0 if args.pick_only else 0.5
 
     explorer = pfrl.explorers.LinearDecayEpsilonGreedy(
-        0.5, 0.1, 5000, random_action_func=env.random_action_sample)
-    optimizer = torch.optim.Adam(q_func.parameters(), eps=1e-4, weight_decay=1e-4)
-    replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10 ** 6, betasteps=5000)
+        0.5, 0.1, 4000 * k, random_action_func=GraspEnv.random_action_sample_fn(config, False))
+    # optimizer = torch.optim.Adam(q_func.parameters(), lr=1e-4)
+    optimizer = torch.optim.SGD(q_func.parameters(), lr=1e-4, momentum=0.9, weight_decay=2e-5)
+    replay_buffer = pfrl.replay_buffers.PrioritizedReplayBuffer(capacity=10000, betasteps=40000 * k)
+    #replay_buffer = pfrl.replay_buffers.ReplayBuffer(10000, 1)
 
     gpu = 0
 
-    agent = pfrl.agents.DQN(
+    agent = pfrl.agents.DoubleDQN(
         q_func,
         optimizer,
         replay_buffer,
         gamma,
         explorer,
-        replay_start_size=1 if args.test_run else 100,
-        update_interval=1,
-        target_update_interval=1,
-        minibatch_size=1 if args.test_run else 32,
+        replay_start_size=16 if args.test_run else 1000 * k,
+        update_interval=k,
+        target_update_interval=k if args.pick_only else 250 * k,
+        minibatch_size=8 if args.test_run else 8,
         gpu=gpu,
         phi=phi,
+        max_grad_norm=100,
     )
+
+    if args.load_agent is not None:
+        agent.load(args.load_agent)
 
     logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='')
 
-    pfrl.experiments.train_agent_with_evaluation(
+    pfrl.experiments.train_agent_batch_with_evaluation(
         agent,
-        env,
-        steps=50000,
+        env=env,
+        steps=40000 * k,
+        log_interval=1000,
         eval_n_steps=None,
-        eval_n_episodes=20,
-        train_max_episode_len=200,
-        eval_interval=500,
+        eval_n_episodes=10,
+        max_episode_len=1 if args.pick_only else 10,
+        eval_interval=1000,
         outdir=args.outdir,
         save_best_so_far_agent=True,
         # eval_env=eval_env,
