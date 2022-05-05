@@ -140,6 +140,9 @@ class HSREnv:
 
         # print(self.robot.get_joint_infos())
 
+    def close(self):
+        p.disconnect(self.c_direct)
+
     def reset(self):
         self.c_gui.resetSimulation()
         self.c_direct.resetSimulation()
